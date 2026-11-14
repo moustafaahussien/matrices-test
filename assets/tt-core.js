@@ -578,12 +578,51 @@ var TTCore = (function () {
     function ttRecalc(p) { var s = K.staffAuth(p.token); K.need(s, ['admin', 'coordinator']); var r = recalcAll(); K.log(s.username, 'ttRecalc', JSON.stringify(r)); return r; }
     function aiTrigger(p) { var s = K.staffAuth(p.token); K.need(s, ['admin']); if (!DB().trigger) err('غير متاح في الوضع التجريبي'); var r = DB().trigger(p.on === false ? 'remove' : 'install'); K.log(s.username, 'aiTrigger', r); return aiStatus(p); }
 
+    /* ---------------- الربط مع منصة الموهبة ----------------
+       مفتاح ربط سري يُنشئه المدير، ويُحفظ على الخادم مشفّراً (بصمة SHA-256 فقط).
+       منصة الموهبة ترسله لتقرأ قائمة المرشحين والحالات الحدّية فقط (ملخص النتائج، بلا إجابات ولا رسوم). */
+    function linkStatus(p) {
+      var s = K.staffAuth(p.token); K.need(s, ['admin']);
+      return { active: !!secret('LINK_HASH'), created: Number(secret('LINK_AT') || 0) || '', last: Number(secret('LINK_LAST') || 0) || '', hint: secret('LINK_HINT'), count: Number(secret('LINK_N') || 0) };
+    }
+    function linkNew(p) {
+      var s = K.staffAuth(p.token); K.need(s, ['admin']);
+      var k = 'LNK-' + (uuid() + uuid()).replace(/-/g, '').slice(0, 40);
+      setSecret('LINK_HASH', DB().sha256(k)); setSecret('LINK_AT', String(now())); setSecret('LINK_HINT', k.slice(-4)); setSecret('LINK_LAST', ''); setSecret('LINK_N', '');
+      K.log(s.username, 'linkNew', '…' + k.slice(-4));
+      return { key: k };
+    }
+    function linkRevoke(p) {
+      var s = K.staffAuth(p.token); K.need(s, ['admin']);
+      ['LINK_HASH', 'LINK_AT', 'LINK_HINT', 'LINK_LAST', 'LINK_N'].forEach(function (k) { setSecret(k, ''); });
+      K.log(s.username, 'linkRevoke', '');
+      return {};
+    }
+    function linkExport(p) {
+      var h = secret('LINK_HASH');
+      if (!h) err('الربط مع منصة الموهبة غير مفعّل. أنشئ مفتاح ربط من «الإعدادات» في نظام الكشف');
+      // حماية من التخمين: 10 محاولات خاطئة تقفل الربط 15 دقيقة
+      var bad = (DB().cacheGet && DB().cacheGet('linkBad')) || 0;
+      if (bad >= 10) err('محاولات كثيرة بمفتاح خاطئ؛ أعد المحاولة بعد 15 دقيقة');
+      if (!p.key || DB().sha256(String(p.key).trim()) !== h) { if (DB().cachePut) DB().cachePut('linkBad', bad + 1, 900); err('مفتاح الربط غير صحيح. انسخه من جديد من «الإعدادات» في نظام الكشف'); }
+      var S = settings();
+      var rv = rowsOf('Results').filter(function (r) { return r.status === 'valid'; }).map(function (r) { var o = plain('Results', r); delete o.answers; delete o.dob; return o; });
+      var tt = rowsOf('TResults').filter(function (r) { return r.status === 'valid'; }).map(function (r) {
+        var o = plain('TResults', r), m = mergeStrengths(J(r.strengths));
+        o._str = Object.keys(m).filter(function (k) { return m[k]; }); delete o.dob; delete o.acts; return o;
+      });
+      var list = TTLink.build(rv, tt, S, { nominatedOnly: !!p.nominatedOnly });
+      setSecret('LINK_LAST', String(now())); setSecret('LINK_N', String(Number(secret('LINK_N') || 0) + 1));
+      return { school: S.schoolName, generatedAt: now(), giftedPct: Number(S.giftedPct || 90), ttGiftedPct: Number(S.ttGiftedPct || 90), students: list, version: I.VERSION };
+    }
+
     return {
       studentLogin: studentLogin, monitor: monitor, attemptAction: attemptAction, processQueue: processQueue, recalcAll: recalcAll,
       meta: function () { return { version: I.VERSION, ai: aiReady() }; },
       actions: {
         ttSave: ttSave, ttSubmit: ttSubmit, ttList: ttList, ttResult: ttResult, ttImage: ttImage, ttReview: ttReview, ttSetStatus: ttSetStatus, ttRescore: ttRescore, ttPaperEntry: ttPaperEntry, ttRecalc: ttRecalc, ttAgreement: ttAgreement, ttIdeas: ttIdeas,
-        aiStatus: aiStatus, aiSaveKey: aiSaveKey, aiTest: aiTest, aiRun: aiRun, aiRequeue: aiRequeue, aiNext: aiNext, aiApply: aiApply, aiTrigger: aiTrigger
+        aiStatus: aiStatus, aiSaveKey: aiSaveKey, aiTest: aiTest, aiRun: aiRun, aiRequeue: aiRequeue, aiNext: aiNext, aiApply: aiApply, aiTrigger: aiTrigger,
+        linkStatus: linkStatus, linkNew: linkNew, linkRevoke: linkRevoke, linkExport: linkExport
       }
     };
   }

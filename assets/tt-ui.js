@@ -847,7 +847,35 @@ window.TTUI = function (A) {
       <label>الحد الأدنى للطلاب لاعتماد الأصالة من بيانات المدرسة<input name="ttMinOrig" type="number" min="10" max="1000" value="${esc(s.ttMinOrig || 40)}"></label></div>
       <p class="sm muted">الأصالة: الفكرة التي يكتبها 5% أو أكثر من الطلاب تأخذ 0، ومن 2% إلى أقل من 5% تأخذ 1، والأندر تأخذ 2. قبل اكتمال العدد الأدنى تُستخدم درجة الندرة التي يقدّرها الذكاء الاصطناعي، وتُعلَّم بأنها مبدئية.</p>
       <div class="row end"><button class="btn">حفظ</button></div></form></div>
-      <div class="card" id="aiCard"><h3>التصحيح بالذكاء الاصطناعي (Google Gemini المجاني)</h3><div id="aiBox"><div class="spin big"></div></div></div>`;
+      <div class="card" id="aiCard"><h3>التصحيح بالذكاء الاصطناعي (Google Gemini المجاني)</h3><div id="aiBox"><div class="spin big"></div></div></div>
+      ${role() === 'admin' ? '<div class="card" id="linkCard"><h3>الربط مع منصة الموهبة</h3><div id="linkBox"><div class="spin big"></div></div></div>' : ''}`;
+  }
+  /* مفتاح الربط: يسمح لمنصة الموهبة بقراءة قائمة المرشحين والحالات الحدّية فقط */
+  async function loadLink() {
+    const box = $('#linkBox'); if (!box) return;
+    let st; try { st = await api('linkStatus'); } catch (e) { box.innerHTML = `<p class="bad">${esc(e.message)}</p>`; return; }
+    box.innerHTML = `<p>يسمح هذا المفتاح لـ<b>منصة الموهبة</b> باستيراد الطلاب المرشحين والحالات الحدّية آلياً، مع اقتراح البرامج المناسبة لكل طالب. يبقى كل نظام مستقلاً بذاته.</p>
+      <div class="cards"><div class="stat ${st.active ? 'green' : 'warnc'}"><b>${st.active ? '✓' : '✗'}</b><span>${st.active ? 'الربط مفعّل (المفتاح ينتهي بـ ' + esc(st.hint) + ')' : 'الربط غير مفعّل'}</span></div>
+      ${st.active ? `<div class="stat"><b class="sm-b">${st.last ? fmtDate(st.last, true) : '—'}</b><span>آخر استيراد من المنصة</span></div><div class="stat"><b>${st.count || 0}</b><span>مرات الاستيراد</span></div>` : ''}</div>
+      <div id="linkNewKey"></div>
+      <div class="row"><button class="btn" data-lk="new">${st.active ? 'إنشاء مفتاح جديد (يُلغي القديم)' : 'إنشاء مفتاح ربط'}</button>${st.active ? '<button class="btn ghost danger-t" data-lk="revoke">إيقاف الربط</button>' : ''}</div>
+      <div class="card guide sm"><b>ما الذي تقرؤه المنصة؟</b> اسم الطالب ورقمه وصفه وفصله، وملخص نتائجه (المئيني والمستوى والتصنيف ونقاط القوة الإبداعية) للمرشحين والحالات الحدّية فقط. لا تُرسل إجابات الطلاب ولا رسومهم ولا تاريخ الميلاد.<br>
+      <b>الخطوات:</b> ١) اضغط «إنشاء مفتاح ربط» وانسخه. ٢) في منصة الموهبة افتح «استيراد الموهوبين» وسجّل دخول المشرف. ٣) الصق المفتاح في خانة «مفتاح الربط» واضغط «جلب الطلاب». المفتاح يظهر هنا مرة واحدة فقط؛ إن فقدته أنشئ مفتاحاً جديداً والصقه في المنصة.</div>`;
+    box.onclick = async e => {
+      const b = e.target.closest('[data-lk]'); if (!b) return;
+      try {
+        if (b.dataset.lk === 'new') {
+          if (st.active && !(await confirmBox('إنشاء مفتاح جديد يُلغي المفتاح الحالي، وستحتاج لصق الجديد في منصة الموهبة. متابعة؟', 'إنشاء'))) return;
+          busy(b, true); const r = await api('linkNew'); await loadLink();
+          $('#linkNewKey').innerHTML = `<div class="card" style="border:2px solid #d9a400"><b>مفتاح الربط (انسخه الآن، لن يظهر مرة أخرى):</b><div class="row"><input id="lkVal" dir="ltr" readonly value="${esc(r.key)}" style="max-width:460px;font-family:monospace"><button class="btn" id="lkCopy">نسخ</button></div></div>`;
+          $('#lkCopy').onclick = () => { const i = $('#lkVal'); i.select(); try { navigator.clipboard.writeText(i.value).then(() => toast('تم النسخ')); } catch (x) { document.execCommand('copy'); toast('تم النسخ'); } };
+        }
+        if (b.dataset.lk === 'revoke') {
+          if (!(await confirmBox('إيقاف الربط؟ لن تستطيع منصة الموهبة استيراد الطلاب حتى تنشئ مفتاحاً جديداً.', 'إيقاف', true))) return;
+          busy(b, true); await api('linkRevoke'); toast('تم إيقاف الربط'); loadLink();
+        }
+      } catch (er) { toast(er.message, 'err'); busy(b, false); }
+    };
   }
   async function loadAI() {
     const box = $('#aiBox'); if (!box) return;
@@ -889,7 +917,7 @@ window.TTUI = function (A) {
   }
   function bindSettings() {
     const f = $('#fTT'); if (f) f.onsubmit = async e => { e.preventDefault(); const b = $('button', f); busy(b, true); try { const r = await api('saveSettings', { settings: { ttGiftedPct: f.ttGiftedPct.value, ttMinOrig: f.ttMinOrig.value } }); S.meta.settings = r.settings; toast('تم الحفظ'); } catch (er) { toast(er.message, 'err'); } finally { busy(b, false); } };
-    loadAI();
+    loadAI(); loadLink();
   }
 
   /* ---------------- الرئيسية ---------------- */

@@ -141,4 +141,4 @@
   }
 
   G.RVAnalysis = { enrich, groupStats, histogram, itemAnalysis, parts, STAGE_PARTS, LEVELS, REF, mean, sd, round, level, pctRank };
-})(window);
+})(typeof window !== 'undefined' ? window : this);

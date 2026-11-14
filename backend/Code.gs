@@ -697,6 +697,371 @@
 })(typeof window !== 'undefined' ? window : this);
 
 /* =====================================================================
+   analysis.js — التحليل الآلي: المعايير المحلية، الاتساق، الترشيح، تحليل البنود
+   ===================================================================== */
+(function (G) {
+  'use strict';
+  const STAGE_PARTS = {
+    primary: [['A', 'أ', 0, 12], ['AB', 'أب', 12, 24], ['B', 'ب', 24, 36]],
+    intermediate: [['A', 'أ', 0, 12], ['B', 'ب', 12, 24], ['C', 'ج', 24, 36], ['D', 'د', 36, 48], ['E', 'هـ', 48, 60]],
+    secondary: [['Q1', 'ربع 1', 12, 21], ['Q2', 'ربع 2', 21, 30], ['Q3', 'ربع 3', 30, 39], ['Q4', 'ربع 4', 39, 48]]
+  };
+  const SCORED_RANGE = { primary: [0, 36], intermediate: [0, 60], secondary: [12, 48] };
+  const LEVELS = [
+    [95, 'I', 'متفوق (ممتاز جداً)', 'lv1'], [90, 'II+', 'فوق المتوسط بدرجة عالية', 'lv2'], [75, 'II', 'فوق المتوسط', 'lv2'],
+    [50, 'III+', 'متوسط (مرتفع)', 'lv3'], [25, 'III−', 'متوسط (منخفض)', 'lv3'], [10, 'IV', 'دون المتوسط', 'lv4'], [5, 'IV−', 'دون المتوسط بوضوح', 'lv4'], [-1, 'V', 'منخفض – يُحال لتقييم أدق', 'lv5']
+  ];
+  const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+  const sd = a => { if (a.length < 2) return 0; const m = mean(a); return Math.sqrt(a.reduce((s, x) => s + (x - m) * (x - m), 0) / (a.length - 1)); };
+  const round = (x, d = 0) => { const k = Math.pow(10, d); return Math.round(x * k) / k; };
+
+  function parts(r) {
+    const c = r.correct || '';
+    return STAGE_PARTS[r.stage].map(([id, label, a, b]) => { let s = 0; for (let i = a; i < b; i++) if (c[i] === '1') s++; return { id, label, score: s, max: b - a }; });
+  }
+  function pctRank(x, arr) { if (!arr.length) return null; let below = 0, eq = 0; arr.forEach(v => { if (v < x) below++; else if (v === x) eq++; }); return Math.max(1, Math.min(99, Math.round((below + 0.5 * eq) / arr.length * 100))); }
+  function level(p) { for (const L of LEVELS) if (p >= L[0]) return { code: L[1], label: L[2], cls: L[3] }; }
+  function ageYears(r) { const m = Number(r.ageMonths); return m ? Math.floor(m / 12) : null; }
+
+  const REF = {
+    grade: { label: 'الصف', key: r => r.stage + '|' + r.grade, name: r => 'الصف ' + r.grade },
+    gradeGender: { label: 'الصف والجنس', key: r => r.stage + '|' + r.grade + '|' + r.gender, name: r => 'الصف ' + r.grade + ' ' + (r.gender || '') },
+    age: { label: 'العمر بالسنوات', key: r => r.stage + '|age' + ageYears(r), name: r => ageYears(r) != null ? 'عمر ' + ageYears(r) + ' سنة' : 'العمر غير معروف' },
+    stage: { label: 'المرحلة', key: r => r.stage, name: () => 'المرحلة كاملة' }
+  };
+
+  /* ------- إثراء النتائج: المئيني، الدرجة المعيارية، المستوى، الاتساق، الترشيح ------- */
+  function enrich(results, settings, refType) {
+    settings = settings || {};
+    const minN = Number(settings.minNorm || 30), giftedPct = Number(settings.giftedPct || 90);
+    const valid = results.filter(r => r.status === 'valid' && r.score !== '');
+    valid.forEach(r => { r._score = Number(r.score); r._parts = parts(r); });
+    const ref = REF[refType] || REF.grade;
+    const groups = {}, stageGroups = {};
+    valid.forEach(r => { const k = ref.key(r); (groups[k] = groups[k] || []).push(r._score); (stageGroups[r.stage] = stageGroups[r.stage] || []).push(r); });
+    valid.forEach(r => {
+      let arr = groups[ref.key(r)], refName = ref.name(r), small = false, fallback = false;
+      if ((arr.length < minN || (refType === 'age' && ageYears(r) == null)) && ref !== REF.stage) { arr = stageGroups[r.stage].map(x => x._score); refName = 'المرحلة كاملة'; fallback = true; }
+      if (arr.length < minN) small = true;
+      r._pct = pctRank(r._score, arr); r._refN = arr.length; r._refName = refName; r._refSmall = small; r._refFallback = fallback;
+      const m = mean(arr), s = sd(arr); r._z = s ? (r._score - m) / s : 0; r._ss = Math.round(100 + 15 * r._z);
+      r._level = level(r._pct);
+    });
+    // الاتساق: مقارنة أداء الأجزاء بالمتوقع لمن لهم الدرجة الكلية نفسها تقريباً
+    Object.keys(stageGroups).forEach(stage => {
+      const list = stageGroups[stage];
+      // صعوبة البنود (نموذج راش مبسط) لتقدير الأداء المتوقع في كل مجموعة عند درجة كلية معينة
+      const sr = SCORED_RANGE[stage], n = list.length, lg = [];
+      for (let i = sr[0]; i < sr[1]; i++) {
+        const prior = -2.6 + 5.2 * (i - sr[0]) / (sr[1] - sr[0] - 1);
+        const c = list.reduce((a, r) => a + ((r.correct || '')[i] === '1' ? 1 : 0), 0);
+        const p = (c + 0.5) / (n + 1), emp = -Math.log(p / (1 - p));
+        const w = Math.min(1, n / 40); lg.push(w * emp + (1 - w) * prior);
+      }
+      const mkExp = k => { const b = lg.map(x => x * k); return T => {
+        let lo = -15, hi = 15;
+        for (let q = 0; q < 50; q++) { const m = (lo + hi) / 2; const s = b.reduce((a, bi) => a + 1 / (1 + Math.exp(-(m - bi))), 0); if (s < T) lo = m; else hi = m; }
+        const th = (lo + hi) / 2;
+        return STAGE_PARTS[stage].map(([, , a, z]) => { let s = 0; for (let i = a; i < z; i++) s += 1 / (1 + Math.exp(-(th - b[i - sr[0]]))); return s; });
+      }; };
+      // معامل انحدار المنحنيات يُقدَّر من البيانات (التباين بين الصعوبات المرصودة والحقيقية)
+      let expAt = mkExp(1);
+      if (n >= 15) { let best = 1e18; [1, 1.3, 1.6, 2, 2.5, 3].forEach(k => { const f = mkExp(k); let e = 0; list.forEach(r => { const ex = f(r._score); r._parts.forEach((pp, i) => { e += (pp.score - ex[i]) ** 2; }); }); if (e < best) { best = e; expAt = f; } }); }
+      list.forEach(r => {
+        const nb = list.filter(x => x !== r && Math.abs(x._score - r._score) <= 1);
+        let exp, method;
+        if (nb.length >= 10) { exp = STAGE_PARTS[stage].map((p, i) => mean(nb.map(x => x._parts[i].score))); method = 'من طلاب المدرسة بالدرجة نفسها'; }
+        else { exp = expAt(r._score); method = 'تقدير إحصائي من صعوبة البنود'; }
+        const disc = r._parts.map((p, i) => round(p.score - exp[i], 1));
+        const maxAbs = Math.max.apply(null, disc.map(Math.abs));
+        const over2 = disc.filter(d => Math.abs(d) > 2).length;
+        const discBad = maxAbs > 3 || over2 >= 2;
+        // نمط Guttman داخل كل جزء: إجابة صحيحة لبند صعب مع خطأ في بند أسهل منه
+        let gErr = 0, gMax = 0; const c = r.correct || '';
+        STAGE_PARTS[stage].forEach(([, , a, b]) => { for (let i = a; i < b; i++) for (let j = i + 1; j < b; j++) { gMax++; if (c[i] === '0' && c[j] === '1') gErr++; } });
+        const answered = (r.answers || '').replace(/0/g, '').length;
+        const rapidRatio = answered ? Number(r.rapid || 0) / answered : 0;
+        const flags = [];
+        if (discBad) flags.push(maxAbs > 3 ? 'فرق أكبر من ±3 في إحدى المجموعات' : 'فرق أكبر من ±2 في مجموعتين أو أكثر');
+        if (rapidRatio > 0.2) flags.push('إجابات سريعة جداً (' + r.rapid + ')');
+        if (r.overtime === '1') flags.push('تجاوز الوقت المحدد');
+        const chance = stage === 'primary' ? 6 : stage === 'intermediate' ? 8.5 : 4.5;
+        if (r._score <= chance + 2) flags.push('الدرجة قريبة من مستوى التخمين');
+        r._exp = exp.map(x => round(x, 1)); r._disc = disc; r._discMethod = method; r._guttman = gMax ? round(gErr / gMax, 2) : 0;
+        r._consistent = !discBad && rapidRatio <= 0.2; r._flags = flags;
+        r._nominated = r._pct >= giftedPct && r._consistent;
+        r._borderline = !r._nominated && r._pct >= giftedPct - 5 && r._consistent;
+        r._reviewHigh = r._pct >= giftedPct && !r._consistent;
+      });
+    });
+    return results;
+  }
+
+  /* ------- إحصاءات المجموعات ------- */
+  function groupStats(rows, keyFn) {
+    const g = {}; rows.forEach(r => { const k = keyFn(r); (g[k] = g[k] || []).push(r._score); });
+    return Object.keys(g).sort((a, b) => String(a).localeCompare(String(b), 'ar', { numeric: true })).map(k => { const a = g[k]; return { key: k, n: a.length, mean: round(mean(a), 1), sd: round(sd(a), 1), min: Math.min.apply(null, a), max: Math.max.apply(null, a), median: median(a) }; });
+  }
+  function median(a) { const s = a.slice().sort((x, y) => x - y); const n = s.length; return n ? (n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2) : 0; }
+  function histogram(scores, max, bins) {
+    bins = bins || Math.min(max + 1, 20); const w = (max + 1) / bins; const h = Array(bins).fill(0);
+    scores.forEach(s => { h[Math.min(bins - 1, Math.floor(s / w))]++; });
+    return h.map((c, i) => ({ from: Math.round(i * w), to: Math.round((i + 1) * w) - 1, count: c }));
+  }
+
+  /* ------- تحليل البنود ------- */
+  function itemAnalysis(rows, stage, keyFn) {
+    const [a, b] = [0, rows.length ? (rows[0].correct || '').length : 0];
+    const n = rows.length; if (!n) return { items: [], kr20: null, n: 0 };
+    const sr = SCORED_RANGE[stage];
+    const totals = rows.map(r => { let s = 0; for (let i = sr[0]; i < sr[1]; i++) if (r.correct[i] === '1') s++; return s; });
+    const order = rows.map((r, i) => i).sort((x, y) => totals[x] - totals[y]);
+    const k27 = Math.max(1, Math.round(n * 0.27)); const low = order.slice(0, k27), high = order.slice(n - k27);
+    const items = []; let sumPQ = 0;
+    for (let i = a; i < b; i++) {
+      const x = rows.map(r => r.correct[i] === '1' ? 1 : 0); const p = mean(x);
+      const D = mean(high.map(j => x[j])) - mean(low.map(j => x[j]));
+      // ارتباط ثنائي نقطي مصحَّح (بدون البند نفسه)
+      const rest = totals.map((t, j) => t - (i >= sr[0] && i < sr[1] ? x[j] : 0));
+      const mr = mean(rest), sdr = sd(rest); let rpb = null;
+      if (sdr > 0 && p > 0 && p < 1) { const m1 = mean(rest.filter((v, j) => x[j] === 1)), m0 = mean(rest.filter((v, j) => x[j] === 0)); rpb = (m1 - m0) / sdr * Math.sqrt(p * (1 - p)); }
+      if (i >= sr[0] && i < sr[1]) sumPQ += p * (1 - p);
+      const dist = {}; rows.forEach(r => { const c = (r.answers || '')[i] || '0'; dist[c] = (dist[c] || 0) + 1; });
+      const flags = [];
+      if (p > 0.95) flags.push('سهل جداً'); if (p < 0.1) flags.push('صعب جداً');
+      if (D < 0.2 && n >= 20) flags.push('تمييز ضعيف'); if (rpb != null && rpb < 0 && n >= 20) flags.push('ارتباط سالب');
+      items.push({ i, label: keyFn(i), p: round(p, 2), D: round(D, 2), rpb: rpb == null ? null : round(rpb, 2), dist, flags });
+    }
+    const k = sr[1] - sr[0], v = sd(totals) ** 2;
+    const kr20 = n >= 10 && v > 0 ? round(k / (k - 1) * (1 - sumPQ / v), 2) : null;
+    const sem = kr20 != null ? round(sd(totals) * Math.sqrt(Math.max(0, 1 - kr20)), 2) : null;
+    return { items, kr20, sem, n };
+  }
+
+  G.RVAnalysis = { enrich, groupStats, histogram, itemAnalysis, parts, STAGE_PARTS, LEVELS, REF, mean, sd, round, level, pctRank };
+})(typeof window !== 'undefined' ? window : this);
+
+/* =====================================================================
+   tt-analysis.js — تحليل نتائج اختبار التفكير الإبداعي
+   معادلة النماذج الأربعة، المعايير المحلية، المؤشر الإبداعي، الترشيح، الثبات
+   ===================================================================== */
+(function (G) {
+  'use strict';
+  var A = G.RVAnalysis, T = G.TTItems;
+  var mean = A.mean, sd = A.sd, round = A.round;
+  var INDEX_DIMS = { verbal: ['fluency', 'flexibility', 'originality'], figural: ['fluency', 'originality', 'elaboration', 'abstractness', 'closure'] };
+  var ALL_DIMS = { verbal: ['fluency', 'flexibility', 'originality'], figural: ['fluency', 'originality', 'elaboration', 'abstractness', 'closure', 'flexibility'] };
+  var MIN_FORM_N = 15;
+
+  function J(s) { try { return s ? JSON.parse(s) : {}; } catch (e) { return {}; } }
+  function n(v) { var x = Number(v); return isFinite(x) ? x : 0; }
+
+  // معادلة خطية للنماذج داخل كل (صورة × مرحلة): تجعل متوسط وانحراف كل نموذج مساويين للمجموع
+  function equate(rows, battery) {
+    var byStage = {};
+    rows.forEach(function (r) { (byStage[r.stage] = byStage[r.stage] || []).push(r); });
+    Object.keys(byStage).forEach(function (st) {
+      var list = byStage[st], forms = {};
+      list.forEach(function (r) { (forms[r.form] = forms[r.form] || []).push(r); });
+      var okForms = Object.keys(forms).filter(function (f) { return forms[f].length >= MIN_FORM_N; });
+      ALL_DIMS[battery].forEach(function (d) {
+        var all = list.map(function (r) { return n(r[d]); }), mA = mean(all), sA = sd(all);
+        list.forEach(function (r) { r._eq = r._eq || {}; r._eq[d] = n(r[d]); });
+        if (okForms.length < 2 || list.length < 40) return;
+        okForms.forEach(function (f) {
+          var v = forms[f].map(function (r) { return n(r[d]); }), mF = mean(v), sF = sd(v);
+          forms[f].forEach(function (r) { r._eq[d] = sF > 0 ? mA + sA * (n(r[d]) - mF) / sF : n(r[d]) - mF + mA; r._equated = true; });
+        });
+      });
+    });
+  }
+
+  function enrich(results, settings, refType) {
+    settings = settings || {};
+    var minN = Number(settings.minNorm || 30), gp = Number(settings.ttGiftedPct || 90);
+    var ref = A.REF[refType] || A.REF.grade;
+    ['verbal', 'figural'].forEach(function (bat) {
+      var valid = results.filter(function (r) { return r.battery === bat && r.status === 'valid' && r.fluency !== ''; });
+      if (!valid.length) return;
+      equate(valid, bat);
+      var groups = {}, stageG = {};
+      valid.forEach(function (r) { var k = ref.key(r); (groups[k] = groups[k] || []).push(r); (stageG[r.stage] = stageG[r.stage] || []).push(r); });
+      valid.forEach(function (r) {
+        var g = groups[ref.key(r)], name = ref.name(r), fb = false;
+        if (g.length < minN && ref !== A.REF.stage) { g = stageG[r.stage]; name = 'المرحلة كاملة'; fb = true; }
+        r._refN = g.length; r._refName = name; r._refFallback = fb; r._refSmall = g.length < minN;
+        r._ss = {}; r._pctD = {};
+        ALL_DIMS[bat].forEach(function (d) {
+          var arr = g.map(function (x) { return x._eq[d]; }), m = mean(arr), s = sd(arr), v = r._eq[d];
+          r._ss[d] = Math.round(100 + 15 * (s ? (v - m) / s : 0)); r._pctD[d] = A.pctRank(v, arr);
+        });
+        var st = INDEX_DIMS[bat].map(function (d) { return r._ss[d]; });
+        r._bonus = bat === 'figural' ? n(r.bonus) : 0;
+        r._index = Math.round(mean(st) + r._bonus);
+      });
+      valid.forEach(function (r) {
+        var g = (r._refFallback ? stageG[r.stage] : groups[ref.key(r)]).map(function (x) { return x._index; });
+        r._pct = A.pctRank(r._index, g); r._level = A.level(r._pct);
+        var flags = [];
+        if (bat === 'verbal' && n(r.fluency) < 5) flags.push('عدد الاستجابات قليل جداً');
+        if (bat === 'figural' && n(r.fluency) < 3) flags.push('عدد الرسوم قليل جداً');
+        if (r.provisional === '1') flags.push('الأصالة مبدئية (العينة لم تكتمل بعد)');
+        if (r.scoredBy === 'rule') flags.push('تصحيح آلي بالقواعد دون ذكاء اصطناعي');
+        r._flags = flags;
+        var solid = !(bat === 'verbal' ? n(r.fluency) < 5 : n(r.fluency) < 3);
+        r._nominated = r._pct >= gp && solid;
+        r._borderline = !r._nominated && r._pct >= gp - 5 && solid;
+        r._reviewHigh = r._pct >= gp && !solid;
+      });
+    });
+    return results;
+  }
+  function alpha(matrix) {
+    var k = matrix[0] ? matrix[0].length : 0; if (k < 2 || matrix.length < 10) return null;
+    var vars = 0; for (var j = 0; j < k; j++) { var c = matrix.map(function (r) { return r[j]; }); vars += Math.pow(sd(c), 2); }
+    var tot = matrix.map(function (r) { return r.reduce(function (a, b) { return a + b; }, 0); }), vt = Math.pow(sd(tot), 2);
+    return vt > 0 ? round(k / (k - 1) * (1 - vars / vt), 2) : null;
+  }
+  function reliability(rows, battery) {
+    if (battery === 'verbal') {
+      var acts = T.getForm('verbal', 1).acts.map(function (a) { return a.id; });
+      var m = rows.map(function (r) { var a = J(r.acts); return acts.map(function (id) { return n((a[id] || {}).fluency); }); });
+      var mo = rows.map(function (r) { var a = J(r.acts); return acts.map(function (id) { return n((a[id] || {}).originality); }); });
+      return { fluency: alpha(m), originality: alpha(mo), label: 'ألفا كرونباخ عبر الأنشطة السبعة' };
+    }
+    var z = rows.map(function (r) { return INDEX_DIMS.figural.map(function (d) { return r._ss ? r._ss[d] : 0; }); });
+    return { index: alpha(z), label: 'ألفا كرونباخ لأبعاد المؤشر الإبداعي' };
+  }
+  function correlation(a, b) { if (a.length < 5) return null; var ma = mean(a), mb = mean(b), sa = sd(a), sb = sd(b); if (!sa || !sb) return null; var s = 0; for (var i = 0; i < a.length; i++) s += (a[i] - ma) * (b[i] - mb); return round(s / (a.length - 1) / sa / sb, 2); }
+
+  G.TTAnalysis = { enrich: enrich, INDEX_DIMS: INDEX_DIMS, ALL_DIMS: ALL_DIMS, reliability: reliability, correlation: correlation, equate: equate };
+})(typeof window !== 'undefined' ? window : this);
+
+/* =====================================================================
+   link.js — الربط مع منصة الموهبة
+   يجمع نتيجتي المقياسين لكل طالب، ويحدد تصنيفه، ويقترح البرامج المناسبة له
+   من برامج النموذج التام لتطوير الموهبة، والمسابقات المناسبة.
+   يعمل على الخادم (Apps Script) وفي المتصفح (الوضع التجريبي).
+   ===================================================================== */
+(function (G) {
+  'use strict';
+  var STAGE_NAME = { primary: 'الابتدائية', intermediate: 'المتوسطة', secondary: 'الثانوية' };
+  var CAT = {
+    both: 'قدرة عقلية + تفكير إبداعي',
+    ability: 'قدرة عقلية عالية',
+    creative: 'تفكير إبداعي عالٍ',
+    borderline: 'حالة حدّية'
+  };
+  /* معرّفات البرامج كما في منصة الموهبة (js/sijil/programs.js) */
+  var PROG_NAME = {
+    'general-enrichment': 'برنامج الإثراء العام', skills: 'برنامج تنمية المهارات', clusters: 'برنامج الأنشطة الموجهة',
+    specialty: 'برنامج الإثراء المتخصص', projects: 'برنامج المشاريع الهادفة', acceleration: 'برنامج التسريع الأكاديمي',
+    mentorship: 'برنامج الرعاية الخاصة', support: 'البرامج المساندة'
+  };
+  var COMP_NAME = { kangaroo: 'الكانجارو (رياضيات)', bebras: 'بيبراس (معلوماتية)', nsmo: 'الأولمبياد الوطني للعلوم والرياضيات', ibdaa: 'إبداع (البحث العلمي والابتكار)', isef: 'آيسف (معرض البحث العلمي الدولي)' };
+
+  function num(v) { var x = Number(v); return isFinite(x) ? x : 0; }
+  function J(s) { if (s && typeof s === 'object') return s; try { return s ? JSON.parse(s) : {}; } catch (e) { return {}; } }
+
+  function rvSummary(r) {
+    if (!r) return null;
+    return {
+      date: num(r.submittedAt), form: r.form, score: num(r.score), max: num(r.maxScore), pct: r._pct, ss: r._ss,
+      level: r._level ? r._level.code + ' – ' + r._level.label : '', nominated: !!r._nominated, borderline: !!r._borderline,
+      review: !!r._reviewHigh, ref: r._refName || '', provisional: !!r._refSmall, flags: r._flags || []
+    };
+  }
+  function ttSummary(r, strNames) {
+    if (!r) return null;
+    var dims = {}; Object.keys(r._pctD || {}).forEach(function (d) { dims[d] = r._pctD[d]; });
+    return {
+      date: num(r.submittedAt), form: r.form, index: r._index, pct: r._pct, level: r._level ? r._level.code + ' – ' + r._level.label : '',
+      nominated: !!r._nominated, borderline: !!r._borderline, review: !!r._reviewHigh, ref: r._refName || '', provisional: !!r._refSmall || r.provisional === '1',
+      dims: dims, strengths: (r._str || []).map(function (k) { return strNames[k] || k; }), flags: r._flags || []
+    };
+  }
+
+  /* اقتراح البرامج والمسابقات حسب التصنيف. pre = محدد مسبقاً للاعتماد، وغير المحدد يحتاج محكاً إضافياً */
+  function recommend(p) {
+    var progs = [], comps = [], notes = [];
+    var P = function (id, why, pre) { progs.push({ prog: id, name: PROG_NAME[id], why: why, pre: pre !== false }); };
+    var C = function (id, why) { comps.push({ id: id, name: COMP_NAME[id], why: why }); };
+    var rvPct = p.rv ? num(p.rv.pct) : 0, g = num(p.grade);
+    var fig = p.figural && p.figural.nominated, verb = p.verbal && p.verbal.nominated;
+    if (p.cat === 'both') {
+      P('projects', 'يجمع القدرة العقلية والتفكير الإبداعي: مرشح لمسار البحث والابتكار (فكرة ← مشروع ← مسابقة)');
+      P('mentorship', 'رعاية خاصة مع راعٍ في مجال موهبته لتنمية قدراته المرتفعة في المقياسين');
+      P('clusters', 'أنشطة موجهة حسب اهتماماته لاستثمار قدرته وإبداعه معاً');
+    } else if (p.cat === 'ability') {
+      P('skills', 'قدرة عقلية عالية: تنمية مهارات التفكير العليا والاستدلال وحل المشكلات');
+      P('clusters', 'أنشطة موجهة في مجال اهتمامه لتوظيف قدرته العقلية');
+    } else if (p.cat === 'creative') {
+      P('projects', 'تفكير إبداعي عالٍ: مشروع هادف يحوّل أفكاره الأصيلة إلى منتج');
+      P('clusters', 'أنشطة موجهة تناسب ميوله الإبداعية' + (fig && !verb ? ' (الفنون والتصميم والنمذجة)' : verb && !fig ? ' (الكتابة والإلقاء والتأليف)' : ''));
+    } else {
+      P('general-enrichment', 'حالة حدّية: إثراء عام لاكتشاف اهتماماته ومتابعته');
+      P('skills', 'حالة حدّية: تنمية مهارات التفكير، ثم إعادة قياسه العام القادم');
+      notes.push('يُعاد قياسه العام الدراسي القادم، ويُراقَب أداؤه في البرامج قبل ترشيحه لبرامج الموهوبين.');
+    }
+    if (p.cat === 'both' || p.cat === 'ability') {
+      P('specialty', 'يُضاف إذا حقق 80% فأكثر في الاختبار الإثرائي للمادة (معيار الكتاب)', false);
+      if (rvPct >= 98) P('acceleration', 'المئيني في المصفوفات ' + rvPct + ': يُدرس التسريع بعد التحقق من التحصيل والنضج الاجتماعي', false);
+    }
+    if (p.cat === 'both' || p.cat === 'ability') {
+      if (g >= 3) C('kangaroo', 'قدرة استدلالية عالية تناسب مسائل الرياضيات غير الروتينية');
+      if (g >= 3) C('bebras', 'الاستدلال على الأنماط يناسب التفكير الحاسوبي');
+      if (g >= 7) C('nsmo', 'قدرة عقلية عالية في المرحلة ' + (g >= 10 ? 'الثانوية' : 'المتوسطة'));
+    }
+    if (p.cat === 'both' || p.cat === 'creative') {
+      C('ibdaa', 'تفكير إبداعي عالٍ يناسب مسار البحث والابتكار');
+      if (p.cat === 'both' && g >= 9) C('isef', 'يجمع القدرة والإبداع: مرشح لمسار آيسف عبر إبداع');
+    }
+    if (p.cat !== 'borderline') notes.push('يوصى بتسجيله في مقياس موهبة للقدرات العقلية المتعددة عند فتح التسجيل لصفه، للتأكد من النتيجة بمقياس وطني مقنن.');
+    if ((p.rv && p.rv.provisional) || (p.verbal && p.verbal.provisional) || (p.figural && p.figural.provisional)) notes.push('بعض النتائج مبدئية لأن عدد الطلاب في مجموعة المقارنة لم يكتمل بعد؛ قد تتغير قليلاً بعد اكتمال الاختبار في المدرسة.');
+    return { programs: progs, competitions: comps, notes: notes };
+  }
+
+  /* rv: نتائج المصفوفات (صفوف Results)، tt: نتائج التفكير الإبداعي (صفوف TResults، وفيها _str = مفاتيح نقاط القوة) */
+  function build(rv, tt, settings, opts) {
+    opts = opts || {};
+    var A = G.RVAnalysis, TA = G.TTAnalysis, I = G.TTItems;
+    var strNames = {}; ((I && I.STRENGTHS) || []).forEach(function (s) { strNames[s[0]] = s[1]; });
+    rv = rv.filter(function (r) { return r.status === 'valid'; });
+    tt = tt.filter(function (r) { return r.status === 'valid'; });
+    A.enrich(rv, settings, 'grade'); TA.enrich(tt, settings, 'grade');
+    var P = {};
+    function add(r, k) {
+      var id = r.studentId + '|' + r.stage;
+      var p = P[id] = P[id] || { studentId: String(r.studentId), name: r.name, gender: r.gender, grade: r.grade, className: r.className, track: r.track, stage: r.stage, stageName: STAGE_NAME[r.stage] || r.stage };
+      if (!p['_' + k] || num(r.submittedAt) > num(p['_' + k].submittedAt)) p['_' + k] = r;
+    }
+    rv.forEach(function (r) { if (r._pct != null) add(r, 'rv'); });
+    tt.forEach(function (r) { if (r._pct != null) add(r, r.battery); });
+    var out = [];
+    Object.keys(P).forEach(function (id) {
+      var p = P[id];
+      var o = { studentId: p.studentId, name: p.name, gender: p.gender, grade: p.grade, className: p.className, track: p.track, stage: p.stage, stageName: p.stageName,
+        rv: rvSummary(p._rv), verbal: ttSummary(p._verbal, strNames), figural: ttSummary(p._figural, strNames) };
+      var ab = !!(o.rv && o.rv.nominated), cr = !!((o.verbal && o.verbal.nominated) || (o.figural && o.figural.nominated));
+      var bl = [o.rv, o.verbal, o.figural].some(function (x) { return x && x.borderline; });
+      o.cat = ab && cr ? 'both' : ab ? 'ability' : cr ? 'creative' : bl ? 'borderline' : '';
+      if (!o.cat) return;
+      if (opts.nominatedOnly && o.cat === 'borderline') return;
+      o.catName = CAT[o.cat];
+      var dates = [o.rv, o.verbal, o.figural].filter(Boolean).map(function (x) { return x.date; });
+      o.lastDate = Math.max.apply(null, dates);
+      var rec = recommend(o); o.programs = rec.programs; o.competitions = rec.competitions; o.notes = rec.notes;
+      out.push(o);
+    });
+    var order = { both: 0, ability: 1, creative: 2, borderline: 3 };
+    out.sort(function (a, b) { return order[a.cat] - order[b.cat] || String(a.name).localeCompare(String(b.name), 'ar'); });
+    return out;
+  }
+
+  G.TTLink = { build: build, recommend: recommend, CAT: CAT, PROG_NAME: PROG_NAME, COMP_NAME: COMP_NAME, J: J };
+})(typeof window !== 'undefined' ? window : this);
+
+/* =====================================================================
    core.js — منطق الخادم المشترك (يعمل في Google Apps Script وفي الوضع التجريبي)
    لا تعدّل هذا الملف في Apps Script مباشرة؛ ملف Code.gs يحتوي نسخة منه
    ===================================================================== */
@@ -1713,12 +2078,51 @@ var TTCore = (function () {
     function ttRecalc(p) { var s = K.staffAuth(p.token); K.need(s, ['admin', 'coordinator']); var r = recalcAll(); K.log(s.username, 'ttRecalc', JSON.stringify(r)); return r; }
     function aiTrigger(p) { var s = K.staffAuth(p.token); K.need(s, ['admin']); if (!DB().trigger) err('غير متاح في الوضع التجريبي'); var r = DB().trigger(p.on === false ? 'remove' : 'install'); K.log(s.username, 'aiTrigger', r); return aiStatus(p); }
 
+    /* ---------------- الربط مع منصة الموهبة ----------------
+       مفتاح ربط سري يُنشئه المدير، ويُحفظ على الخادم مشفّراً (بصمة SHA-256 فقط).
+       منصة الموهبة ترسله لتقرأ قائمة المرشحين والحالات الحدّية فقط (ملخص النتائج، بلا إجابات ولا رسوم). */
+    function linkStatus(p) {
+      var s = K.staffAuth(p.token); K.need(s, ['admin']);
+      return { active: !!secret('LINK_HASH'), created: Number(secret('LINK_AT') || 0) || '', last: Number(secret('LINK_LAST') || 0) || '', hint: secret('LINK_HINT'), count: Number(secret('LINK_N') || 0) };
+    }
+    function linkNew(p) {
+      var s = K.staffAuth(p.token); K.need(s, ['admin']);
+      var k = 'LNK-' + (uuid() + uuid()).replace(/-/g, '').slice(0, 40);
+      setSecret('LINK_HASH', DB().sha256(k)); setSecret('LINK_AT', String(now())); setSecret('LINK_HINT', k.slice(-4)); setSecret('LINK_LAST', ''); setSecret('LINK_N', '');
+      K.log(s.username, 'linkNew', '…' + k.slice(-4));
+      return { key: k };
+    }
+    function linkRevoke(p) {
+      var s = K.staffAuth(p.token); K.need(s, ['admin']);
+      ['LINK_HASH', 'LINK_AT', 'LINK_HINT', 'LINK_LAST', 'LINK_N'].forEach(function (k) { setSecret(k, ''); });
+      K.log(s.username, 'linkRevoke', '');
+      return {};
+    }
+    function linkExport(p) {
+      var h = secret('LINK_HASH');
+      if (!h) err('الربط مع منصة الموهبة غير مفعّل. أنشئ مفتاح ربط من «الإعدادات» في نظام الكشف');
+      // حماية من التخمين: 10 محاولات خاطئة تقفل الربط 15 دقيقة
+      var bad = (DB().cacheGet && DB().cacheGet('linkBad')) || 0;
+      if (bad >= 10) err('محاولات كثيرة بمفتاح خاطئ؛ أعد المحاولة بعد 15 دقيقة');
+      if (!p.key || DB().sha256(String(p.key).trim()) !== h) { if (DB().cachePut) DB().cachePut('linkBad', bad + 1, 900); err('مفتاح الربط غير صحيح. انسخه من جديد من «الإعدادات» في نظام الكشف'); }
+      var S = settings();
+      var rv = rowsOf('Results').filter(function (r) { return r.status === 'valid'; }).map(function (r) { var o = plain('Results', r); delete o.answers; delete o.dob; return o; });
+      var tt = rowsOf('TResults').filter(function (r) { return r.status === 'valid'; }).map(function (r) {
+        var o = plain('TResults', r), m = mergeStrengths(J(r.strengths));
+        o._str = Object.keys(m).filter(function (k) { return m[k]; }); delete o.dob; delete o.acts; return o;
+      });
+      var list = TTLink.build(rv, tt, S, { nominatedOnly: !!p.nominatedOnly });
+      setSecret('LINK_LAST', String(now())); setSecret('LINK_N', String(Number(secret('LINK_N') || 0) + 1));
+      return { school: S.schoolName, generatedAt: now(), giftedPct: Number(S.giftedPct || 90), ttGiftedPct: Number(S.ttGiftedPct || 90), students: list, version: I.VERSION };
+    }
+
     return {
       studentLogin: studentLogin, monitor: monitor, attemptAction: attemptAction, processQueue: processQueue, recalcAll: recalcAll,
       meta: function () { return { version: I.VERSION, ai: aiReady() }; },
       actions: {
         ttSave: ttSave, ttSubmit: ttSubmit, ttList: ttList, ttResult: ttResult, ttImage: ttImage, ttReview: ttReview, ttSetStatus: ttSetStatus, ttRescore: ttRescore, ttPaperEntry: ttPaperEntry, ttRecalc: ttRecalc, ttAgreement: ttAgreement, ttIdeas: ttIdeas,
-        aiStatus: aiStatus, aiSaveKey: aiSaveKey, aiTest: aiTest, aiRun: aiRun, aiRequeue: aiRequeue, aiNext: aiNext, aiApply: aiApply, aiTrigger: aiTrigger
+        aiStatus: aiStatus, aiSaveKey: aiSaveKey, aiTest: aiTest, aiRun: aiRun, aiRequeue: aiRequeue, aiNext: aiNext, aiApply: aiApply, aiTrigger: aiTrigger,
+        linkStatus: linkStatus, linkNew: linkNew, linkRevoke: linkRevoke, linkExport: linkExport
       }
     };
   }

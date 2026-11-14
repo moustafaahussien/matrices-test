@@ -11,6 +11,9 @@ cd "$(dirname "$0")/.."
     '   ===================================================================== */'
   cat assets/tt-items.js; echo
   cat assets/tt-engine.js; echo
+  cat assets/analysis.js; echo
+  cat assets/tt-analysis.js; echo
+  cat assets/link.js; echo
   cat assets/core.js; echo
   cat assets/tt-core.js; echo
   cat backend/gas-adapter.js

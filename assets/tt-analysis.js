@@ -92,4 +92,4 @@
   function correlation(a, b) { if (a.length < 5) return null; var ma = mean(a), mb = mean(b), sa = sd(a), sb = sd(b); if (!sa || !sb) return null; var s = 0; for (var i = 0; i < a.length; i++) s += (a[i] - ma) * (b[i] - mb); return round(s / (a.length - 1) / sa / sb, 2); }
 
   G.TTAnalysis = { enrich: enrich, INDEX_DIMS: INDEX_DIMS, ALL_DIMS: ALL_DIMS, reliability: reliability, correlation: correlation, equate: equate };
-})(window);
+})(typeof window !== 'undefined' ? window : this);
