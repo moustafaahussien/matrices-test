@@ -204,7 +204,7 @@
       e.preventDefault(); const b = $('button', e.target); busy(b, true);
       try {
         const r = await api('login', { username: e.target.u.value, password: e.target.p.value }, { noToken: true });
-        S.token = r.token; S.user = r.user; saveStaff(); S.page = 'home'; await loadMeta(); render();
+        S.token = r.token; S.user = r.user; saveStaff(); { const h = pageFromHash(); S.page = h && PAGES[h.page] ? h.page : 'home'; S.param = h ? h.param : null; } await loadMeta(); render();
       } catch (er) { toast(er.message, 'err'); } finally { busy(b, false); }
     };
     $('#fStu').onsubmit = async e => {
@@ -429,6 +429,9 @@
     if (S.user.mustChange) { shell('<div class="card"><h2>مرحباً</h2><p>يجب تغيير كلمة المرور المؤقتة قبل المتابعة.</p></div>'); changePw(true); bindStaff(); return; }
     const page = PAGES[S.page] && NAV.concat([{ id: 'monitor', roles: ['admin', 'coordinator', 'teacher'] }, { id: 'ttReviewQ', roles: ['admin', 'coordinator'] }]).find(n => n.id === S.page && n.roles.includes(role())) ? S.page : 'home';
     S.page = page;
+    // حفظ الصفحة الحالية في رابط المتصفح، فيعود إليها التحديث (F5) وزر الرجوع
+    const h = '#' + page + (S.param ? '/' + encodeURIComponent(S.param) : '');
+    if (location.hash !== h) { if (location.hash && location.hash !== '#') history.pushState(null, '', h); else history.replaceState(null, '', h); }
     shell('<div class="center"><div class="spin big"></div></div>'); bindStaff();
     try { await PAGES[page](); } catch (e) { if (e.code !== 'auth') $('#page').innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
   }
@@ -451,7 +454,7 @@
   }
 
   const ACT = {
-    logout: async () => { try { await api('logout'); } catch (e) { } logoutLocal(); render(); },
+    logout: async () => { try { await api('logout'); } catch (e) { } logoutLocal(); history.replaceState(null, '', location.pathname + location.search); render(); },
     changePw: () => changePw(false),
     menu: () => $('.shell').classList.toggle('menu-open'),
     demoReset: async (b) => { if (!(await confirmBox('سيتم حذف كل البيانات التجريبية وإنشاء بيانات جديدة. متابعة؟', 'إعادة الضبط', true))) return; await runSeed(); logoutLocal(); render(); }
@@ -900,7 +903,14 @@
   /* ---------------- ربط وحدة اختبار التفكير الإبداعي ---------------- */
   const TT = window.TTUI ? window.TTUI({ api, modal, confirmBox, toast, busy, esc, $, $$, sleep, pad, fmtDate, fmtDur, ago, downloadFile, toCSV, S, PAGES, ACT, F, view, render, setPage, stopTimers, isAll, role, logoSvg, getResults, filterBar, bindFilters, levelBadge, histSvg, statTable, DEMO, CFG, STAGE_NAME, Core: window.Core, LocalDB: window.LocalDB }) : null;
 
+  // قراءة الصفحة من رابط المتصفح (#results أو #monitor/رمز الجلسة)
+  function pageFromHash() { const m = (location.hash || '').match(/^#([A-Za-z]+)(?:\/(.+))?$/); return m ? { page: m[1], param: m[2] ? decodeURIComponent(m[2]) : null } : null; }
+  window.addEventListener('popstate', () => {
+    const h = pageFromHash(); if (!h || !S.token || STU || (TT && TT.active())) return;
+    if (h.page !== S.page || (h.param || null) !== (S.param || null)) { S.page = h.page; S.param = h.param; render(); }
+  });
   async function boot() {
+    const h0 = pageFromHash(); if (h0 && PAGES[h0.page]) { S.page = h0.page; S.param = h0.param; }
     if (NO_SERVER) { view.innerHTML = '<div class="stu-card"><h2>الموقع غير مربوط بالخادم</h2><p>ضع رابط Apps Script في الملف assets/config.js ثم أعد تحميل الصفحة.</p></div>'; return; }
     if (DEMO && !LocalDB.isSeeded()) await runSeed();
     if (TT) TT.restore();
