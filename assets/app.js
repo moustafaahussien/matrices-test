@@ -4,7 +4,10 @@
 (function () {
   'use strict';
   const CFG = window.RV_CONFIG || {};
-  const DEMO = !CFG.API_URL;
+  // الوضع التجريبي يعمل فقط عندما يكون رابط الخادم فارغاً وخارج موقع النشر (أو عند إضافة ?demo=1)
+  const ON_PROD = /github\.io$/i.test(location.hostname) && !/[?&]demo=1/.test(location.search);
+  const DEMO = !CFG.API_URL && !ON_PROD;
+  const NO_SERVER = !CFG.API_URL && ON_PROD;
   if (DEMO) Core.init(LocalDB);
   const I = window.RVItems, AN = window.RVAnalysis;
   const STAGE_NAME = { primary: 'الابتدائية', intermediate: 'المتوسطة', secondary: 'الثانوية' };
@@ -782,14 +785,21 @@
 
   /* ---------------- معاينة النماذج ---------------- */
   PAGES.preview = async () => {
-    let stage = 'primary', form = 1, show = false;
+    let stage = 'primary', form = 1, show = false, setF = '';
     const draw = () => {
       const fm = I.getForm(stage, form);
+      const sets = I.STAGES[stage].sets;
+      const lbl = it => (it.set === 'I' || it.set === 'II' ? it.set + '-' : it.setLabel) + it.num;
+      const items = fm.items.filter(it => !setF || it.set === setF);
       setPage(`<h1 class="ph">معاينة النماذج</h1><div class="filters"><label>المرحلة<select id="pvS">${['primary', 'intermediate', 'secondary'].map(s => `<option value="${s}" ${s === stage ? 'selected' : ''}>${STAGE_NAME[s]} — ${STAGE_TEST[s]}</option>`).join('')}</select></label>
-        <label>النموذج<select id="pvF">${[1, 2, 3, 4].map(f => `<option ${f === form ? 'selected' : ''}>${f}</option>`).join('')}</select></label><label class="chk"><input type="checkbox" id="pvA" ${show ? 'checked' : ''}> إظهار الإجابات الصحيحة</label><button class="btn ghost" data-act="printPage">طباعة</button></div>
-        <p class="muted">${fm.items.length} بنداً. جميع النماذج الأربعة لها البنية والقواعد نفسها بنداً ببند، وتختلف الأشكال والقيم، لذلك هي متكافئة في الصعوبة.</p>
-        <div class="pv-list">${fm.items.map(it => `<div class="pv-item"><div class="pv-h">${it.set === 'I' || it.set === 'II' ? it.set + '-' : it.setLabel}${it.num}${show ? ` <span class="badge green">الإجابة ${it.answer}</span>` : ''}</div><div class="pv-stem lay-${it.layout}">${it.stem}</div><div class="pv-opts n${it.options.length}">${it.options.map((o, k) => `<div class="pv-o ${show && k + 1 === it.answer ? 'ans' : ''}"><span>${k + 1}</span>${o}</div>`).join('')}</div></div>`).join('')}</div>`);
-      $('#pvS').onchange = e => { stage = e.target.value; draw(); }; $('#pvF').onchange = e => { form = +e.target.value; draw(); }; $('#pvA').onchange = e => { show = e.target.checked; draw(); };
+        <label>النموذج<select id="pvF">${[1, 2, 3, 4].map(f => `<option ${f === form ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
+        <label>المجموعة<select id="pvG"><option value="">كل المجموعات (${fm.items.length} بنداً)</option>${sets.map(st => `<option value="${st.id}" ${st.id === setF ? 'selected' : ''}>${st.id === 'I' || st.id === 'II' ? st.label : 'المجموعة ' + st.label} (${st.n})</option>`).join('')}</select></label>
+        <label class="chk"><input type="checkbox" id="pvA" ${show ? 'checked' : ''}> إظهار الإجابات الصحيحة</label><button class="btn ghost" data-act="printPage">طباعة</button></div>
+        <p class="muted">يُعرض ${items.length} بنداً من ${fm.items.length}. النماذج الأربعة لها البنية والقواعد نفسها بنداً ببند، وتختلف الأشكال والقيم، فهي متكافئة في الصعوبة. اضغط رقم البند للانتقال إليه:</p>
+        <div class="pv-jump">${items.map(it => `<a href="javascript:void(0)" data-jump="pv-${it.idx}">${lbl(it)}</a>`).join('')}</div>
+        <div class="pv-list">${items.map(it => `<div class="pv-item" id="pv-${it.idx}"><div class="pv-h"><span>${lbl(it)}</span>${show ? `<span class="badge green">الإجابة ${it.answer}</span>` : ''}</div><div class="pv-stem lay-${it.layout}">${it.stem}</div><div class="pv-opts n${it.options.length}">${it.options.map((o, k) => `<div class="pv-o ${show && k + 1 === it.answer ? 'ans' : ''}"><span>${k + 1}</span>${o}</div>`).join('')}</div></div>`).join('')}</div>`);
+      $('#pvS').onchange = e => { stage = e.target.value; setF = ''; draw(); }; $('#pvF').onchange = e => { form = +e.target.value; draw(); }; $('#pvG').onchange = e => { setF = e.target.value; draw(); }; $('#pvA').onchange = e => { show = e.target.checked; draw(); };
+      $$('[data-jump]').forEach(a => a.onclick = () => { const el = document.getElementById(a.dataset.jump); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
     };
     draw();
   };
@@ -810,6 +820,7 @@
     await seedDemo(p => { const el = $('#seedP'); if (el) el.style.width = p + '%'; });
   }
   async function boot() {
+    if (NO_SERVER) { view.innerHTML = '<div class="stu-card"><h2>الموقع غير مربوط بالخادم</h2><p>ضع رابط Apps Script في الملف assets/config.js ثم أعد تحميل الصفحة.</p></div>'; return; }
     if (DEMO && !LocalDB.isSeeded()) await runSeed();
     try { const saved = JSON.parse(localStorage.getItem('rvstu') || 'null'); if (saved && saved.stoken) { const n = I.itemCount(saved.attempt.stage); let local = null; try { local = JSON.parse(localStorage.getItem('rvatt:' + saved.attempt.attemptId) || 'null'); } catch (e) { }
       STU = Object.assign({}, saved, { answers: local ? local.answers : Array(n).fill(0), times: local ? local.times : Array(n).fill(0), cur: local ? local.cur || 0 : 0, phase: local && local.phase === 'test' ? 'test' : 'welcome', lastSave: Date.now(), unsaved: 1, items: I.getForm(saved.attempt.stage, saved.attempt.form).items }); } } catch (e) { STU = null; }
