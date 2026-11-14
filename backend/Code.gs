@@ -727,7 +727,7 @@ var Core = (function () {
     intermediate: { sets: [['A', 12], ['B', 12], ['C', 12], ['D', 12], ['E', 12]], scored: ['A', 'B', 'C', 'D', 'E'], max: 60, n: 60, time: 45, grades: [7, 9] },
     secondary: { sets: [['I', 12], ['II', 36]], scored: ['II'], max: 36, n: 48, time: 50, grades: [10, 12] }
   };
-  var DEFAULT_SETTINGS = { schoolName: 'مدارس دار الذكر', giftedPct: '90', minNorm: '30', retakeDefault: '0', showResultDefault: '0', ttGiftedPct: '90', ttMinOrig: '40', aiEnabled: '1', aiModel: '', aiPace: '5', aiDailyMax: '250' };
+  var DEFAULT_SETTINGS = { schoolName: 'مدارس دار الذكر', giftedPct: '90', minNorm: '30', retakeDefault: '0', showResultDefault: '0', ttGiftedPct: '90', ttMinOrig: '40', aiEnabled: '1', aiModel: '', aiPace: '5', aiDailyMax: '1000' };
   var ROLES = { admin: 'مدير النظام', coordinator: 'منسق الموهبة', teacher: 'معلم / مراقب' };
   var STAFF_TTL = 6 * 3600, STUDENT_TTL = 6 * 3600;
 
@@ -738,7 +738,7 @@ var Core = (function () {
   function bool(v) { return v === true || v === 'true' || v === '1' || v === 1; }
   function splitList(s) { return str(s).split(/[,،]/).map(function (x) { return x.trim(); }).filter(Boolean); }
   function find(table, field, val) { var r = DB.rows(table); for (var i = 0; i < r.length; i++) if (str(r[i][field]) === str(val)) return r[i]; return null; }
-  function settings() { var o = {}; for (var k in DEFAULT_SETTINGS) o[k] = DEFAULT_SETTINGS[k]; DB.rows('Settings').forEach(function (r) { o[r.key] = str(r.value); }); return o; }
+  function settings() { var o = {}; for (var k in DEFAULT_SETTINGS) o[k] = DEFAULT_SETTINGS[k]; DB.rows('Settings').forEach(function (r) { o[r.key] = str(r.value); }); if (o.aiDailyMax === '250') o.aiDailyMax = '1000'; return o; }
   function log(user, action, detail) { try { DB.insert('Log', { ts: now(), user: user || '', action: action, detail: typeof detail === 'string' ? detail : JSON.stringify(detail || '') }); } catch (e) { } }
   function randCode(n, alpha) { alpha = alpha || 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; var s = ''; var u = DB.uuid().replace(/-/g, ''); for (var i = 0; i < n; i++) { s += alpha[parseInt(u.substr(i * 2, 2), 16) % alpha.length]; } return s; }
   function hashPw(salt, pw) { return DB.sha256(salt + ':' + pw); }
@@ -1412,28 +1412,41 @@ var TTCore = (function () {
       return list;
     }
     function httpMsg(r) { var j = J(r.text, null); var m = j && j.error && j.error.message; return 'HTTP ' + r.code + (m ? ': ' + String(m).slice(0, 200) : ''); }
-    function modelOrder(key) {
+    // ترتيب النماذج حسب نوع المهمة: الرسوم لنماذج Flash الأقوى أولاً (حصتها اليومية صغيرة)، والنصوص لنماذج Flash-Lite (حصتها كبيرة)
+    function modelOrder(key, kind) {
       var s = settings().aiModel; if (s) return [s];
       var c = J(secret('aiModels'), {}); var list = c.list || [];
       if (!list.length || now() - Number(c.ts || 0) > 24 * 3600 * 1000) { try { list = listModels(key); } catch (e) { if (!list.length) throw e; } }
-      var bad = J(secret('aiBad'), {}); var ok = list.filter(function (m) { return !bad[m]; });
-      return (ok.length ? ok : list).slice(0, 5);
+      var bad = J(secret('aiBad'), {}); var ok = list.filter(function (m) { return !bad[m]; }); if (!ok.length) ok = list;
+      var lite = ok.filter(function (m) { return /lite/i.test(m); }), full = ok.filter(function (m) { return !/lite/i.test(m); });
+      var ordered = kind === 'verbal' ? lite.slice(0, 3).concat(full.slice(0, 3)) : full.slice(0, 3).concat(lite.slice(0, 3));
+      var cool = J(secret('aiCool'), {}), t = now();
+      var ready = ordered.filter(function (m) { return !cool[m] || Number(cool[m].until || 0) <= t; });
+      return ready;
     }
-    function callModel(key, prep) {
-      var models = modelOrder(key), lastErr = null, quota = 0, busyN = 0;
+    // تذكّر النموذج الذي بلغ حده: دقيقتان أول مرة، ثم 6 ساعات إذا تكرر (غالباً امتلأ حده اليومي)
+    function coolModel(m) {
+      var cool = J(secret('aiCool'), {}), t = now(), c = cool[m] || { hits: 0 };
+      if (t - Number(c.last || 0) > 6 * 3600 * 1000) c.hits = 0;
+      c.hits++; c.last = t; c.until = t + (c.hits >= 3 ? 6 * 3600 * 1000 : c.hits === 2 ? 15 * 60000 : 2 * 60000);
+      cool[m] = c; setSecret('aiCool', JSON.stringify(cool));
+    }
+    function warmModel(m) { var cool = J(secret('aiCool'), {}); if (cool[m]) { delete cool[m]; setSecret('aiCool', JSON.stringify(cool)); } }
+    function callModel(key, prep, kind) {
+      var models = modelOrder(key, kind), lastErr = null, quota = 0, busyN = 0;
+      if (!models.length) { var q0 = new Error('كل النماذج المجانية بلغت حدها مؤقتاً؛ سيُكمل التصحيح تلقائياً لاحقاً (429)'); q0.quota = true; throw q0; }
       for (var i = 0; i < models.length; i++) {
         var m = models[i];
         var r = DB().http(API + 'models/' + encodeURIComponent(m) + ':generateContent', { method: 'post', headers: { 'x-goog-api-key': key }, payload: JSON.stringify(E.geminiBody(prep.prompt, prep.images)) });
-        countCall();
-        if (r.code === 200) { try { return { text: E.geminiText(J(r.text)), model: m }; } catch (e) { lastErr = e; continue; } }
+        if (r.code === 200) { countCall(); warmModel(m); try { return { text: E.geminiText(J(r.text)), model: m }; } catch (e) { lastErr = e; continue; } }
         if (r.code === 401 || r.code === 403) { var e2 = new Error('مفتاح Gemini غير صالح أو غير مفعّل (' + r.code + ')'); e2.fatal = true; throw e2; }
         if (r.code === 404 || (r.code === 400 && /not (found|supported)|unsupported/i.test(r.text))) { var bad = J(secret('aiBad'), {}); bad[m] = 1; setSecret('aiBad', JSON.stringify(bad)); lastErr = new Error(httpMsg(r)); continue; }
-        // الازدحام المؤقت (5xx) أو حد الطلبات لنموذج بعينه (429): ننتقل إلى النموذج التالي
-        if (r.code === 429) { quota++; lastErr = new Error('تم بلوغ حد الطلبات المجاني مؤقتاً (429)'); continue; }
+        // حد الطلبات لنموذج بعينه (429) أو ازدحام مؤقت (5xx): ننتقل إلى النموذج التالي
+        if (r.code === 429) { quota++; coolModel(m); lastErr = new Error('تم بلوغ حد الطلبات المجاني مؤقتاً (429)'); continue; }
         if (r.code >= 500) { busyN++; lastErr = new Error('النماذج مزدحمة مؤقتاً لدى Google، ستُعاد المحاولة تلقائياً (' + r.code + ')'); continue; }
-        lastErr = new Error(httpMsg(r)); break;
+        countCall(); lastErr = new Error(httpMsg(r)); break;
       }
-      if (quota && quota + busyN >= models.length) { var q = new Error('تم بلوغ حد الطلبات المجاني مؤقتاً لكل النماذج المتاحة (429)'); q.quota = true; throw q; }
+      if (quota && quota + busyN >= models.length) { var q = new Error('كل النماذج المجانية بلغت حدها مؤقتاً؛ سيُكمل التصحيح تلقائياً لاحقاً (429)'); q.quota = true; throw q; }
       if (busyN) { var b = lastErr || new Error('ازدحام مؤقت'); b.later = true; b.message = 'النماذج مزدحمة مؤقتاً لدى Google، ستُعاد المحاولة تلقائياً'; throw b; }
       throw lastErr || new Error('لا يوجد نموذج متاح');
     }
@@ -1442,7 +1455,7 @@ var TTCore = (function () {
       var key = secret('GEMINI_KEY'), S = settings(), started = now(), done = 0, errors = 0, stopped = '';
       if (!key || S.aiEnabled === '0') return { done: 0, stopped: 'الذكاء الاصطناعي غير مفعّل أو لا يوجد مفتاح' };
       if (!DB().http) return { done: 0, stopped: 'unsupported' };
-      var pace = Math.max(0, Number(S.aiPace || 5)) * 1000, cap = Number(S.aiDailyMax || 250);
+      var pace = Math.max(0, Number(S.aiPace || 5)) * 1000, cap = Number(S.aiDailyMax || 1000);
       while (now() - started < budgetMs && done + errors < (maxJobs || 1000)) {
         if (todayCalls() >= cap) { stopped = 'تم بلوغ الحد اليومي المحدد (' + cap + ' طلباً)'; break; }
         var job = nextJobs(1)[0]; if (!job) break;
@@ -1450,7 +1463,7 @@ var TTCore = (function () {
         try { prep = prepareJob(job); } catch (e) { DB().lock(function () { failJob(job, e.message); }); errors++; continue; }
         if (!prep || prep.skip) { DB().lock(function () { DB().update('TJobs', 'jobId', job.jobId, { status: 'done', doneAt: now(), error: 'لا توجد بيانات للتصحيح' }); settleResult(job.resultId); }); continue; }
         var out = null, callErr = null;
-        try { out = callModel(key, prep); } catch (e) { callErr = e; }
+        try { out = callModel(key, prep, job.kind); } catch (e) { callErr = e; }
         if (out) {
           try { DB().lock(function () { applyJob(job, out.text, out.model); }); done++; }
           catch (e) { DB().lock(function () { failJob(job, e.message); }); errors++; }
@@ -1645,7 +1658,7 @@ var TTCore = (function () {
       return {
         hasKey: !!key, keyMask: key ? key.slice(0, 4) + '••••' + key.slice(-4) : '', enabled: settings().aiEnabled !== '0', model: settings().aiModel || '', autoModels: c.list || [],
         queued: cnt('queued'), done: cnt('done'), error: cnt('error'), lastRun: Number(secret('aiLastRun') || 0), lastError: secret('aiLastError') || '', recentErrors: errs,
-        todayCalls: todayCalls(), dailyMax: Number(settings().aiDailyMax || 250), trigger: DB().trigger ? DB().trigger('status') : 'غير متاح', serverAI: !!DB().http, dirty: secret('ttDirty') === '1'
+        todayCalls: todayCalls(), dailyMax: Number(settings().aiDailyMax || 1000), cooling: (function () { var c = J(secret('aiCool'), {}), t = now(); return Object.keys(c).filter(function (m) { return Number(c[m].until) > t; }); })(), trigger: DB().trigger ? DB().trigger('status') : 'غير متاح', serverAI: !!DB().http, dirty: secret('ttDirty') === '1'
       };
     }
     function aiSaveKey(p) {
@@ -1662,7 +1675,7 @@ var TTCore = (function () {
       if (!DB().http) return { demo: true };
       var list = listModels(key);
       if (!list.length) err('المفتاح يعمل لكن لم أجد نموذج Flash متاحاً');
-      var out = callModel(key, { prompt: 'Reply with JSON only: {"ok":true,"msg":"مرحبا"}', images: [] });
+      var out = callModel(key, { prompt: 'Reply with JSON only: {"ok":true,"msg":"مرحبا"}', images: [] }, 'verbal');
       return { ok: true, models: list, model: out.model, reply: String(out.text).slice(0, 120) };
     }
     function aiRun(p) {

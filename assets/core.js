@@ -29,7 +29,7 @@ var Core = (function () {
     intermediate: { sets: [['A', 12], ['B', 12], ['C', 12], ['D', 12], ['E', 12]], scored: ['A', 'B', 'C', 'D', 'E'], max: 60, n: 60, time: 45, grades: [7, 9] },
     secondary: { sets: [['I', 12], ['II', 36]], scored: ['II'], max: 36, n: 48, time: 50, grades: [10, 12] }
   };
-  var DEFAULT_SETTINGS = { schoolName: 'مدارس دار الذكر', giftedPct: '90', minNorm: '30', retakeDefault: '0', showResultDefault: '0', ttGiftedPct: '90', ttMinOrig: '40', aiEnabled: '1', aiModel: '', aiPace: '5', aiDailyMax: '250' };
+  var DEFAULT_SETTINGS = { schoolName: 'مدارس دار الذكر', giftedPct: '90', minNorm: '30', retakeDefault: '0', showResultDefault: '0', ttGiftedPct: '90', ttMinOrig: '40', aiEnabled: '1', aiModel: '', aiPace: '5', aiDailyMax: '1000' };
   var ROLES = { admin: 'مدير النظام', coordinator: 'منسق الموهبة', teacher: 'معلم / مراقب' };
   var STAFF_TTL = 6 * 3600, STUDENT_TTL = 6 * 3600;
 
@@ -40,7 +40,7 @@ var Core = (function () {
   function bool(v) { return v === true || v === 'true' || v === '1' || v === 1; }
   function splitList(s) { return str(s).split(/[,،]/).map(function (x) { return x.trim(); }).filter(Boolean); }
   function find(table, field, val) { var r = DB.rows(table); for (var i = 0; i < r.length; i++) if (str(r[i][field]) === str(val)) return r[i]; return null; }
-  function settings() { var o = {}; for (var k in DEFAULT_SETTINGS) o[k] = DEFAULT_SETTINGS[k]; DB.rows('Settings').forEach(function (r) { o[r.key] = str(r.value); }); return o; }
+  function settings() { var o = {}; for (var k in DEFAULT_SETTINGS) o[k] = DEFAULT_SETTINGS[k]; DB.rows('Settings').forEach(function (r) { o[r.key] = str(r.value); }); if (o.aiDailyMax === '250') o.aiDailyMax = '1000'; return o; }
   function log(user, action, detail) { try { DB.insert('Log', { ts: now(), user: user || '', action: action, detail: typeof detail === 'string' ? detail : JSON.stringify(detail || '') }); } catch (e) { } }
   function randCode(n, alpha) { alpha = alpha || 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; var s = ''; var u = DB.uuid().replace(/-/g, ''); for (var i = 0; i < n; i++) { s += alpha[parseInt(u.substr(i * 2, 2), 16) % alpha.length]; } return s; }
   function hashPw(salt, pw) { return DB.sha256(salt + ':' + pw); }

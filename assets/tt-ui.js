@@ -856,7 +856,7 @@ window.TTUI = function (A) {
     box.innerHTML = `<div class="cards"><div class="stat ${st.hasKey ? 'green' : 'warnc'}"><b>${st.hasKey ? '✓' : '✗'}</b><span>${st.hasKey ? 'المفتاح محفوظ ' + esc(st.keyMask) : 'لا يوجد مفتاح'}</span></div>
       <div class="stat blue"><b>${st.queued}</b><span>مهام في الطابور</span></div><div class="stat green"><b>${st.done}</b><span>مهام مكتملة</span></div><div class="stat ${st.error ? 'warnc' : ''}"><b>${st.error}</b><span>مهام تعذّرت</span></div>
       <div class="stat"><b>${st.todayCalls}/${st.dailyMax}</b><span>طلبات اليوم</span></div><div class="stat ${st.trigger === 'مفعّل' ? 'green' : ''}"><b class="sm-b">${DEMO ? 'تجريبي' : esc(st.trigger)}</b><span>التصحيح التلقائي كل 5 دقائق</span></div></div>
-      ${st.lastError ? `<p class="bad sm">آخر خطأ: ${esc(st.lastError)}</p>` : ''}${st.lastRun ? `<p class="sm muted">آخر تشغيل: ${fmtDate(st.lastRun, true)}</p>` : ''}
+      ${st.lastError ? `<p class="bad sm">آخر خطأ: ${esc(st.lastError)}</p>` : ''}${(st.cooling || []).length ? `<p class="sm muted">نماذج بلغت حدها مؤقتاً (يتجاوزها النظام حتى تتجدد): <span dir="ltr">${esc(st.cooling.join(' · '))}</span></p>` : ''}${st.lastRun ? `<p class="sm muted">آخر تشغيل: ${fmtDate(st.lastRun, true)}</p>` : ''}
       <div class="row">${isAll() ? '<button class="btn" data-ai="run">صحّح الآن</button>' : ''}${st.error ? '<button class="btn ghost" data-ai="requeue">إعادة محاولة المهام المتعذّرة</button>' : ''}<button class="btn ghost" data-ai="recalc">إعادة حساب الأصالة</button>
       ${admin && !DEMO ? (st.trigger === 'مفعّل' ? '<button class="btn ghost" data-ai="trOff">إيقاف التصحيح التلقائي</button>' : '<button class="btn warn" data-ai="trOn">تفعيل التصحيح التلقائي</button>') : ''}</div>
       ${admin ? `<hr><h4>مفتاح Gemini</h4>
@@ -866,9 +866,9 @@ window.TTUI = function (A) {
       <form id="fAI"><div class="row2"><label class="chk"><input type="checkbox" name="aiEnabled" ${s.aiEnabled !== '0' ? 'checked' : ''}> تفعيل التصحيح بالذكاء الاصطناعي</label>
       <label>النموذج (اتركه فارغاً للاختيار التلقائي لأحدث نموذج Flash مجاني)<input name="aiModel" dir="ltr" value="${esc(s.aiModel || '')}" placeholder="${esc((st.autoModels || [])[0] || 'تلقائي')}"></label>
       <label>ثوانٍ بين كل طلبين (لتجنب حد الطلبات)<input name="aiPace" type="number" min="0" max="60" value="${esc(s.aiPace || 5)}"></label>
-      <label>الحد الأقصى للطلبات يومياً<input name="aiDailyMax" type="number" min="10" max="10000" value="${esc(s.aiDailyMax || 250)}"></label></div>
+      <label>الحد الأقصى للطلبات يومياً<input name="aiDailyMax" type="number" min="10" max="10000" value="${esc(s.aiDailyMax || 1000)}"></label></div>
       ${(st.autoModels || []).length ? `<p class="sm muted" dir="ltr">${esc(st.autoModels.join(' · '))}</p>` : ''}<div class="row end"><button class="btn">حفظ إعدادات الذكاء الاصطناعي</button></div></form>` : ''}
-      <div class="card guide sm"><b>الخصوصية:</b> تُرسَل إلى Gemini إجابات الطالب ورسوماته وصفّه الدراسي فقط، بلا اسم ولا رقم ولا فصل. وحسب شروط Google، الطبقة المجانية قد تستخدم المحتوى لتحسين منتجاتها؛ تأكد من توافق ذلك مع سياسة المدرسة. <br><b>الحدود المجانية:</b> تتغير من Google من وقت لآخر؛ النظام يتوقف تلقائياً عند بلوغ الحد ويكمل لاحقاً. كل طالب يحتاج طلباً واحداً للصورة اللفظية و3 طلبات للشكلية.</div>`;
+      <div class="card guide sm"><b>الخصوصية:</b> تُرسَل إلى Gemini إجابات الطالب ورسوماته وصفّه الدراسي فقط، بلا اسم ولا رقم ولا فصل. وحسب شروط Google، الطبقة المجانية قد تستخدم المحتوى لتحسين منتجاتها؛ تأكد من توافق ذلك مع سياسة المدرسة. <br><b>الحدود المجانية:</b> تتغير من Google من وقت لآخر؛ النظام يتوقف تلقائياً عند بلوغ الحد ويكمل لاحقاً. كل طالب يحتاج طلباً واحداً للصورة اللفظية و3 طلبات للشكلية. يوزّع النظام الحصة تلقائياً: نماذج Flash الأقوى (20 طلباً يومياً لكل منها) للرسوم، ونماذج Flash-Lite (500 طلب يومياً لكل منها) للنصوص، فيكفي المجموع لحوالي 1,000 طلب يومياً.</div>`;
     box.onclick = async e => {
       const b = e.target.closest('[data-ai]'); if (!b) return; const k = b.dataset.ai; busy(b, true);
       try {
