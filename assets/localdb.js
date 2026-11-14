@@ -32,6 +32,12 @@ var LocalDB = (function () {
   return {
     rows: function (n) { return load(n); },
     insert: function (n, o) { var r = load(n); var c = {}; Core.HEAD[n].forEach(function (h) { c[h] = o[h] == null ? '' : String(o[h]); }); r.push(c); save(n, r); },
+    insertMany: function (n, list) { var r = load(n); (list || []).forEach(function (o) { var c = {}; Core.HEAD[n].forEach(function (h) { c[h] = o[h] == null ? '' : String(o[h]); }); r.push(c); }); save(n, r); },
+    saveRows: function (n, list, key, fields) { var r = load(n), idx = {}; r.forEach(function (x, i) { idx[String(x[key])] = i; }); var fs = fields && fields.length ? fields : Core.HEAD[n]; (list || []).forEach(function (o) { var i = idx[String(o[key])]; if (i == null) return; fs.forEach(function (f) { r[i][f] = o[f] == null ? '' : String(o[f]); }); }); save(n, r); },
+    secretGet: function (k) { return localStorage.getItem(P + 'secret:' + k) || ''; },
+    secretSet: function (k, v) { if (v === '' || v == null) localStorage.removeItem(P + 'secret:' + k); else localStorage.setItem(P + 'secret:' + k, String(v)); },
+    saveImage: function (mime, b64) { return { data: 'data:' + mime + ';base64,' + b64 }; },
+    loadImage: function (row) { var m = String(row.data || '').match(/^data:([^;]+);base64,(.*)$/); return m ? { mime: m[1], data: m[2] } : null; },
     update: function (n, key, val, patch) { var r = load(n), ok = false; r.forEach(function (x) { if (String(x[key]) === String(val)) { for (var k in patch) x[k] = patch[k] == null ? '' : String(patch[k]); ok = true; } }); save(n, r); return ok; },
     remove: function (n, key, val) { save(n, load(n).filter(function (x) { return String(x[key]) !== String(val); })); },
     replaceAll: function (n, list) { save(n, list.map(function (o) { var c = {}; Core.HEAD[n].forEach(function (h) { c[h] = o[h] == null ? '' : String(o[h]); }); return c; })); },
@@ -42,7 +48,7 @@ var LocalDB = (function () {
     sha256: sha256,
     uuid: function () { return (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (ch) { var r = Math.random() * 16 | 0; return (ch === 'x' ? r : (r & 3 | 8)).toString(16); })); },
     now: function () { return Date.now(); },
-    resetAll: function () { Object.keys(localStorage).filter(function (k) { return k.indexOf(P) === 0 || k.indexOf('rvatt:') === 0; }).forEach(function (k) { localStorage.removeItem(k); }); },
+    resetAll: function () { Object.keys(localStorage).filter(function (k) { return (k.indexOf(P) === 0 && k.indexOf(P + 'secret:GEMINI_KEY') !== 0) || k.indexOf('rvatt:') === 0 || k.indexOf('ttatt:') === 0; }).forEach(function (k) { localStorage.removeItem(k); }); },
     isSeeded: function () { return !!localStorage.getItem(P + '_seeded'); },
     markSeeded: function () { localStorage.setItem(P + '_seeded', '1'); }
   };

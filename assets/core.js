@@ -5,17 +5,23 @@
 var Core = (function () {
   'use strict';
   var DB = null;
-  var VERSION = '1.0';
+  var VERSION = '1.1';
 
   var HEAD = {
     Users: ['username', 'name', 'role', 'salt', 'hash', 'classes', 'active', 'mustChange', 'created', 'lastLogin'],
     Students: ['studentId', 'name', 'gender', 'grade', 'className', 'track', 'dob', 'active'],
-    Sessions: ['code', 'title', 'stage', 'formMode', 'classes', 'timeLimit', 'showResult', 'allowRetake', 'status', 'createdBy', 'createdAt', 'closedAt', 'counter'],
+    Sessions: ['code', 'title', 'stage', 'formMode', 'classes', 'timeLimit', 'showResult', 'allowRetake', 'status', 'createdBy', 'createdAt', 'closedAt', 'counter', 'test', 'battery', 'drawMode'],
     Attempts: ['attemptId', 'code', 'studentId', 'stage', 'form', 'status', 'startedAt', 'lastSeen', 'progress', 'answers', 'times', 'stoken', 'submittedAt'],
     Results: ['resultId', 'attemptId', 'code', 'studentId', 'name', 'gender', 'grade', 'className', 'track', 'dob', 'ageMonths', 'stage', 'form', 'score', 'maxScore', 'sets', 'setI', 'timeSec', 'rapid', 'answers', 'correct', 'status', 'submittedAt', 'overtime', 'keyVersion'],
     Keys: ['stage', 'form', 'version', 'key', 'checksum', 'uploadedAt'],
     Settings: ['key', 'value'],
-    Log: ['ts', 'user', 'action', 'detail']
+    Log: ['ts', 'user', 'action', 'detail'],
+    // اختبار التفكير الإبداعي (على نمط تورانس)
+    TAttempts: ['attemptId', 'code', 'studentId', 'stage', 'battery', 'form', 'status', 'startedAt', 'lastSeen', 'actIdx', 'actStart', 'data', 'stoken', 'submittedAt', 'mode'],
+    TResults: ['resultId', 'attemptId', 'code', 'studentId', 'name', 'gender', 'grade', 'className', 'track', 'dob', 'ageMonths', 'stage', 'battery', 'form', 'status', 'scoredBy', 'fluency', 'flexibility', 'originality', 'elaboration', 'abstractness', 'closure', 'bonus', 'strengths', 'acts', 'provisional', 'timeSec', 'mode', 'submittedAt', 'scoredAt', 'aiModel', 'note'],
+    TResponses: ['rid', 'resultId', 'studentId', 'grade', 'stage', 'form', 'battery', 'act', 'item', 'text', 'title', 'valid', 'dupOf', 'cat', 'key', 'rarityAI', 'orig', 'origProv', 'freq', 'elab', 'abstr', 'closure', 'cells', 'src', 'conf', 'flags', 'human', 'origLock'],
+    TJobs: ['jobId', 'resultId', 'kind', 'status', 'tries', 'error', 'createdAt', 'doneAt', 'model', 'nextAt'],
+    TImages: ['imageId', 'attemptId', 'act', 'fileId', 'mime', 'data', 'createdAt']
   };
 
   var STAGE = {
@@ -23,7 +29,7 @@ var Core = (function () {
     intermediate: { sets: [['A', 12], ['B', 12], ['C', 12], ['D', 12], ['E', 12]], scored: ['A', 'B', 'C', 'D', 'E'], max: 60, n: 60, time: 45, grades: [7, 9] },
     secondary: { sets: [['I', 12], ['II', 36]], scored: ['II'], max: 36, n: 48, time: 50, grades: [10, 12] }
   };
-  var DEFAULT_SETTINGS = { schoolName: 'مدارس دار الذكر', giftedPct: '90', minNorm: '30', retakeDefault: '0', showResultDefault: '0' };
+  var DEFAULT_SETTINGS = { schoolName: 'مدارس دار الذكر', giftedPct: '90', minNorm: '30', retakeDefault: '0', showResultDefault: '0', ttGiftedPct: '90', ttMinOrig: '40', aiEnabled: '1', aiModel: '', aiPace: '5', aiDailyMax: '250' };
   var ROLES = { admin: 'مدير النظام', coordinator: 'منسق الموهبة', teacher: 'معلم / مراقب' };
   var STAFF_TTL = 6 * 3600, STUDENT_TTL = 6 * 3600;
 
@@ -105,7 +111,7 @@ var Core = (function () {
       classes[c].count++;
     });
     var keys = DB.rows('Keys');
-    return { user: publicUser(u), settings: settings(), classes: Object.keys(classes).map(function (k) { return classes[k]; }).sort(function (a, b) { return a.grade - b.grade || (a.name < b.name ? -1 : 1); }), keys: { count: keys.length, version: keys.length ? keys[0].version : '', uploadedAt: keys.length ? keys[0].uploadedAt : '' }, roles: ROLES, version: VERSION };
+    return { user: publicUser(u), settings: settings(), classes: Object.keys(classes).map(function (k) { return classes[k]; }).sort(function (a, b) { return a.grade - b.grade || (a.name < b.name ? -1 : 1); }), keys: { count: keys.length, version: keys.length ? keys[0].version : '', uploadedAt: keys.length ? keys[0].uploadedAt : '' }, roles: ROLES, version: VERSION, features: ['torrance'], tt: HOOK.meta ? HOOK.meta(s) : null };
   }
 
   /* ---------------- المستخدمون (المدير فقط) ---------------- */
@@ -167,9 +173,10 @@ var Core = (function () {
   function deleteStudent(p) { var s = staffAuth(p.token); need(s, ['admin']); DB.remove('Students', 'studentId', str(p.studentId)); log(s.username, 'deleteStudent', p.studentId); return {}; }
 
   /* ---------------- جلسات الاختبار ---------------- */
+  function isTT(ses) { return ses && ses.test === 'torrance'; }
   function sessionView(ses) {
-    var att = DB.rows('Attempts').filter(function (a) { return a.code === ses.code; });
-    return { code: ses.code, title: ses.title, stage: ses.stage, formMode: ses.formMode, classes: splitList(ses.classes), timeLimit: Number(ses.timeLimit), showResult: bool(ses.showResult), allowRetake: bool(ses.allowRetake), status: ses.status, createdBy: ses.createdBy, createdAt: Number(ses.createdAt), closedAt: ses.closedAt ? Number(ses.closedAt) : '', started: att.length, submitted: att.filter(function (a) { return a.status === 'submitted'; }).length };
+    var att = DB.rows(isTT(ses) ? 'TAttempts' : 'Attempts').filter(function (a) { return a.code === ses.code; });
+    return { code: ses.code, title: ses.title, stage: ses.stage, formMode: ses.formMode, classes: splitList(ses.classes), timeLimit: Number(ses.timeLimit), showResult: bool(ses.showResult), allowRetake: bool(ses.allowRetake), status: ses.status, createdBy: ses.createdBy, createdAt: Number(ses.createdAt), closedAt: ses.closedAt ? Number(ses.closedAt) : '', started: att.length, submitted: att.filter(function (a) { return a.status === 'submitted'; }).length, test: isTT(ses) ? 'torrance' : 'raven', battery: ses.battery || '', drawMode: ses.drawMode || '' };
   }
   function listSessions(p) {
     var s = staffAuth(p.token);
@@ -186,9 +193,11 @@ var Core = (function () {
       classes.forEach(function (c) { if (s.classes.indexOf(c) < 0) err('الفصل ' + c + ' ليس من فصولك'); });
     }
     var fm = str(d.formMode) || 'rotate'; if (['rotate', '1', '2', '3', '4'].indexOf(fm) < 0) err('النموذج غير صحيح');
-    var tl = Number(d.timeLimit); if (!(tl >= 0 && tl <= 180)) tl = STAGE[d.stage].time;
+    var tt = d.test === 'torrance', bat = str(d.battery), dm = str(d.drawMode) || 'both';
+    if (tt) { if (['verbal', 'figural'].indexOf(bat) < 0) err('اختر صورة الاختبار (لفظية أو شكلية)'); if (['screen', 'paper', 'both'].indexOf(dm) < 0) dm = 'both'; }
+    var tl = Number(d.timeLimit); if (tt) tl = tl > 0 ? (bat === 'verbal' ? 45 : 30) : 0; else if (!(tl >= 0 && tl <= 180)) tl = STAGE[d.stage].time;
     var code; do { code = randCode(6); } while (find('Sessions', 'code', code));
-    var row = { code: code, title: str(d.title) || 'جلسة اختبار', stage: d.stage, formMode: fm, classes: classes.join(','), timeLimit: String(tl), showResult: d.showResult ? '1' : '0', allowRetake: (d.allowRetake && s.role !== 'teacher') ? '1' : '0', status: 'open', createdBy: s.username, createdAt: now(), closedAt: '', counter: '0' };
+    var row = { code: code, title: str(d.title) || 'جلسة اختبار', stage: d.stage, formMode: fm, classes: classes.join(','), timeLimit: String(tl), showResult: !tt && d.showResult ? '1' : '0', allowRetake: (d.allowRetake && s.role !== 'teacher') ? '1' : '0', status: 'open', createdBy: s.username, createdAt: now(), closedAt: '', counter: '0', test: tt ? 'torrance' : '', battery: tt ? bat : '', drawMode: tt && bat === 'figural' ? dm : '' };
     DB.insert('Sessions', row); log(s.username, 'createSession', code);
     return { session: sessionView(row) };
   }
@@ -203,6 +212,7 @@ var Core = (function () {
   function monitor(p) {
     var s = staffAuth(p.token); var ses = find('Sessions', 'code', str(p.code).toUpperCase());
     if (!ses || !canSeeSession(s, ses)) err('الجلسة غير موجودة');
+    if (isTT(ses)) return HOOK.monitor(s, ses);
     var studs = {}; DB.rows('Students').forEach(function (x) { studs[str(x.studentId)] = x; });
     var att = DB.rows('Attempts').filter(function (a) { return a.code === ses.code; }).map(function (a) {
       var st = studs[str(a.studentId)] || {};
@@ -228,6 +238,7 @@ var Core = (function () {
       if (!st || str(st.active) === '0') err('رقم الطالب غير مسجّل، راجع المعلم');
       var cls = splitList(ses.classes);
       if (cls.length ? cls.indexOf(str(st.className)) < 0 : stageOfGrade(st.grade) !== ses.stage) err('هذه الجلسة ليست مخصصة لفصلك');
+      if (isTT(ses)) return HOOK.studentLogin(ses, st, sid, code);
       var atts = DB.rows('Attempts');
       var mine = atts.filter(function (a) { return a.code === code && str(a.studentId) === sid; })[0];
       var stoken = DB.uuid();
@@ -315,7 +326,9 @@ var Core = (function () {
   /* ---------------- إجراءات المعلم/المدير على المحاولات ---------------- */
   function attemptAction(p) {
     var s = staffAuth(p.token);
-    var a = find('Attempts', 'attemptId', str(p.attemptId)); if (!a) err('المحاولة غير موجودة');
+    var a = find('Attempts', 'attemptId', str(p.attemptId));
+    if (!a && HOOK.attemptAction) return HOOK.attemptAction(s, p);
+    if (!a) err('المحاولة غير موجودة');
     var ses = find('Sessions', 'code', a.code); if (!ses || !canSeeSession(s, ses)) err('ليست لديك صلاحية');
     return DB.lock(function () {
       if (p.op === 'forceSubmit') { if (a.status === 'submitted') err('سُلّمت مسبقاً'); finalize(a, a.answers, a.times, s.username); }
@@ -394,8 +407,22 @@ var Core = (function () {
     saveSettings: saveSettings, listLog: listLog
   };
 
+  /* ---------------- امتداد اختبار التفكير الإبداعي ---------------- */
+  var HOOK = {};
+  function installExt() {
+    if (typeof TTCore === 'undefined' || HOOK.installed) return;
+    HOOK = TTCore.install({
+      DB: function () { return DB; }, HEAD: HEAD, STAGE: STAGE, ROLES: ROLES, VERSION: VERSION, STUDENT_TTL: STUDENT_TTL,
+      find: find, err: err, str: str, bool: bool, splitList: splitList, settings: settings, log: log, now: now, randCode: randCode,
+      staffAuth: staffAuth, need: need, isAll: isAll, canSeeSession: canSeeSession, stageOfGrade: stageOfGrade, ageMonths: ageMonths, sessionView: sessionView
+    }) || {};
+    HOOK.installed = true;
+    for (var k in (HOOK.actions || {})) ACTIONS[k] = HOOK.actions[k];
+  }
+
   function handle(action, p) {
     try {
+      installExt();
       if (!ACTIONS[action]) err('إجراء غير معروف');
       ensureSetup();
       var out = ACTIONS[action](p || {}) || {};
@@ -404,6 +431,6 @@ var Core = (function () {
       return { ok: false, error: e.message || String(e), code: e.code || 'error' };
     }
   }
-  return { init: function (db) { DB = db; }, handle: handle, HEAD: HEAD, STAGE: STAGE, VERSION: VERSION };
+  return { init: function (db) { DB = db; installExt(); }, handle: handle, HEAD: HEAD, STAGE: STAGE, VERSION: VERSION, hook: function () { installExt(); return HOOK; } };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

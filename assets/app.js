@@ -122,6 +122,7 @@
       LocalDB.update('Results', 'attemptId', L.attempt.attemptId, { timeSec: String(tsum), submittedAt: String(Date.now() - Math.floor(rnd() * 20) * 86400000) });
     }
     for (const st in sesOf) H('setSessionStatus', { token: tok, code: sesOf[st], status: 'closed' });
+    if (TT) await TT.seed(H, tok, students, rnd, progress);
     for (const st of ['primary', 'intermediate', 'secondary']) H('createSession', { token: tok, session: { title: 'جلسة للتجربة – ' + STAGE_NAME[st], stage: st, formMode: 'rotate', timeLimit: I.STAGES[st].timeDefault, classes: [], allowRetake: true } });
     H('logout', { token: tok });
     LocalDB.markSeeded();
@@ -142,7 +143,7 @@
       <button class="btn ghost sm-btn" data-act="demoReset">إعادة ضبط البيانات التجريبية</button></div>`;
     }
     view.innerHTML = `<div class="login-wrap"><div class="login-card">
-      <div class="brand-big"><div class="logo">${logoSvg()}</div><h1>اختبار المصفوفات للاستدلال المجرد</h1><p>نظام الكشف عن الموهوبين</p></div>
+      <div class="brand-big"><div class="logo">${logoSvg()}</div><h1>نظام الكشف عن الموهوبين</h1><p>اختبار المصفوفات للاستدلال المجرد واختبار التفكير الإبداعي</p></div>
       <div class="tabs"><button class="tab on" data-tab="stu">دخول الطالب</button><button class="tab" data-tab="staff">دخول المنسوبين</button></div>
       <form id="fStu" class="tabpane">
         <label>رقم الطالب<input name="sid" inputmode="numeric" autocomplete="off" dir="ltr" required></label>
@@ -166,7 +167,7 @@
     };
     $('#fStu').onsubmit = async e => {
       e.preventDefault(); const b = $('button', e.target); busy(b, true);
-      try { const r = await api('studentLogin', { studentId: e.target.sid.value.trim(), code: e.target.code.value.trim().toUpperCase() }, { noToken: true, student: true }); startStudent(r); }
+      try { const r = await api('studentLogin', { studentId: e.target.sid.value.trim(), code: e.target.code.value.trim().toUpperCase() }, { noToken: true, student: true }); if (r.test === 'torrance' && TT) TT.start(r); else startStudent(r); }
       catch (er) { toast(er.message, 'err'); } finally { busy(b, false); }
     };
   }
@@ -343,11 +344,15 @@
   const NAV = [
     { id: 'home', t: 'الرئيسية', ic: '⌂', roles: ['admin', 'coordinator', 'teacher'] },
     { id: 'sessions', t: 'جلسات الاختبار', ic: '◷', roles: ['admin', 'coordinator', 'teacher'] },
-    { id: 'results', t: 'النتائج', ic: '▤', roles: ['admin', 'coordinator', 'teacher'] },
-    { id: 'nominations', t: 'الترشيح للموهبة', ic: '★', roles: ['admin', 'coordinator'] },
-    { id: 'analysis', t: 'التحليل الإحصائي', ic: '◔', roles: ['admin', 'coordinator'] },
-    { id: 'students', t: 'الطلاب', ic: '☰', roles: ['admin', 'coordinator', 'teacher'] },
-    { id: 'preview', t: 'معاينة النماذج', ic: '▦', roles: ['admin', 'coordinator'] },
+    { id: 'results', t: 'نتائج المصفوفات', ic: '▤', roles: ['admin', 'coordinator', 'teacher'], g: 'المصفوفات' },
+    { id: 'nominations', t: 'ترشيح المصفوفات', ic: '★', roles: ['admin', 'coordinator'] },
+    { id: 'analysis', t: 'تحليل المصفوفات', ic: '◔', roles: ['admin', 'coordinator'] },
+    { id: 'preview', t: 'نماذج المصفوفات', ic: '▦', roles: ['admin', 'coordinator'] },
+    { id: 'ttResults', t: 'نتائج التفكير الإبداعي', ic: '✎', roles: ['admin', 'coordinator', 'teacher'], g: 'التفكير الإبداعي' },
+    { id: 'ttNominations', t: 'الترشيح والملف الموحّد', ic: '✪', roles: ['admin', 'coordinator'] },
+    { id: 'ttAnalysis', t: 'تحليل التفكير الإبداعي', ic: '◕', roles: ['admin', 'coordinator'] },
+    { id: 'ttPreview', t: 'نماذج التفكير الإبداعي', ic: '❖', roles: ['admin', 'coordinator'] },
+    { id: 'students', t: 'الطلاب', ic: '☰', roles: ['admin', 'coordinator', 'teacher'], g: 'الإدارة' },
     { id: 'users', t: 'المستخدمون', ic: '⚿', roles: ['admin'] },
     { id: 'settings', t: 'الإعدادات', ic: '⚙', roles: ['admin'] },
     { id: 'log', t: 'سجل العمليات', ic: '≣', roles: ['admin'] }
@@ -363,8 +368,8 @@
   async function getResults(force) { if (!S.results || force) { const r = await api('listResults'); S.results = r.results; S.meta.settings = r.settings; } return S.results; }
 
   function shell(content) {
-    const nav = NAV.filter(n => n.roles.includes(role())).map(n => `<button class="nav-i ${S.page === n.id || (S.page === 'monitor' && n.id === 'sessions') ? 'on' : ''}" data-nav="${n.id}"><span class="ic">${n.ic}</span>${n.t}</button>`).join('');
-    view.innerHTML = `<div class="shell"><aside class="side"><div class="side-brand"><div class="logo sm">${logoSvg()}</div><div><b>اختبار المصفوفات</b><small>${esc((S.meta && S.meta.settings.schoolName) || '')}</small></div></div><nav>${nav}</nav>
+    const nav = NAV.filter(n => n.roles.includes(role())).map(n => `${n.g ? `<div class="nav-g">${n.g}</div>` : ''}<button class="nav-i ${S.page === n.id || (S.page === 'monitor' && n.id === 'sessions') || (S.page === 'ttReviewQ' && n.id === 'ttResults') ? 'on' : ''}" data-nav="${n.id}"><span class="ic">${n.ic}</span>${n.t}</button>`).join('');
+    view.innerHTML = `<div class="shell"><aside class="side"><div class="side-brand"><div class="logo sm">${logoSvg()}</div><div><b>الكشف عن الموهوبين</b><small>${esc((S.meta && S.meta.settings.schoolName) || '')}</small></div></div><nav>${nav}</nav>
       <div class="side-user"><div><b>${esc(S.user.name)}</b><small>${ROLE_NAME[role()]}</small></div><button class="btn ghost sm-btn" data-act="changePw">كلمة المرور</button><button class="btn ghost sm-btn" data-act="logout">خروج</button></div></aside>
       <section class="content">${DEMO ? '<div class="demo-strip">الوضع التجريبي — البيانات في هذا المتصفح فقط. لتشغيل النظام الحقيقي ضع رابط Apps Script في config.js</div>' : ''}<div id="page">${content}</div></section>
       <button class="menu-tgl" data-act="menu">☰</button></div>`;
@@ -372,11 +377,12 @@
   async function render() {
     stopTimers();
     document.body.classList.remove('student-mode');
+    if (TT && TT.active()) { TT.render(); return; }
     if (STU) { renderStudent(); return; }
     if (!S.token) { viewLogin(); return; }
     if (!S.meta) { view.innerHTML = '<div class="center"><div class="spin big"></div></div>'; try { await loadMeta(); } catch (e) { return; } }
     if (S.user.mustChange) { shell('<div class="card"><h2>مرحباً</h2><p>يجب تغيير كلمة المرور المؤقتة قبل المتابعة.</p></div>'); changePw(true); bindStaff(); return; }
-    const page = PAGES[S.page] && NAV.concat([{ id: 'monitor', roles: ['admin', 'coordinator', 'teacher'] }]).find(n => n.id === S.page && n.roles.includes(role())) ? S.page : 'home';
+    const page = PAGES[S.page] && NAV.concat([{ id: 'monitor', roles: ['admin', 'coordinator', 'teacher'] }, { id: 'ttReviewQ', roles: ['admin', 'coordinator'] }]).find(n => n.id === S.page && n.roles.includes(role())) ? S.page : 'home';
     S.page = page;
     shell('<div class="center"><div class="spin big"></div></div>'); bindStaff();
     try { await PAGES[page](); } catch (e) { if (e.code !== 'auth') $('#page').innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
@@ -428,14 +434,15 @@
       <div class="grid3">${['primary', 'intermediate', 'secondary'].map(st => { const v = byStage(st).filter(r => r.status === 'valid'); const sc = v.map(r => r._score); return `<div class="card"><h3>المرحلة ${STAGE_NAME[st]}</h3><p class="muted">${STAGE_TEST[st]} — ${I.STAGES[st].maxScore} درجة</p><div class="kv"><span>عدد المختبَرين</span><b>${v.length}</b></div><div class="kv"><span>المتوسط</span><b>${sc.length ? AN.round(AN.mean(sc), 1) : '—'}</b></div>${isAll() ? `<div class="kv"><span>المرشحون</span><b>${v.filter(r => r._nominated).length}</b></div>` : ''}</div>`; }).join('')}</div>
       <div class="card"><div class="row between"><h3>الجلسات المفتوحة</h3><button class="btn" data-act="newSession">+ جلسة جديدة</button></div>
       ${open.length ? sessionsTable(open) : '<p class="muted">لا توجد جلسات مفتوحة. أنشئ جلسة جديدة ليدخل الطلاب برمزها.</p>'}</div>
+      ${TT ? await TT.homeHtml() : ''}
       <div class="card guide"><h3>خطوات تطبيق الاختبار</h3><ol><li>تأكد أن طلاب الفصل مسجلون في صفحة «الطلاب».</li><li>أنشئ «جلسة جديدة» واختر المرحلة والفصول، فيظهر رمز من 6 خانات.</li><li>اعرض الرمز للطلاب؛ يدخل كل طالب برقمه والرمز ويؤدي مثالين للتدريب ثم الاختبار.</li><li>تابع التقدم مباشرة من «متابعة»، وأغلق الجلسة بعد انتهاء الجميع.</li><li>راجع «النتائج» و«الترشيح للموهبة» وتقارير الطلاب.</li></ol></div>`);
   };
   ACT.uploadKeys = async (b) => { busy(b, true); try { const r = await api('uploadKeys', { keys: I.allKeys() }); toast(`تم رفع ${r.count} مفتاحاً` + (r.rescored ? ` وإعادة تصحيح ${r.rescored} نتيجة` : '')); S.meta = await api('getMeta'); S.results = null; render(); } catch (e) { toast(e.message, 'err'); busy(b, false); } };
 
   /* ---------------- الجلسات ---------------- */
   function sessionsTable(list) {
-    return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>الرمز</th><th>العنوان</th><th>المرحلة</th><th>الفصول</th><th>النموذج</th><th>الوقت</th><th>الحالة</th><th>بدأ/سلّم</th><th>أنشأها</th><th></th></tr></thead><tbody>
-    ${list.map(s => `<tr><td><b class="code" dir="ltr">${s.code}</b></td><td>${esc(s.title)}</td><td>${STAGE_NAME[s.stage]}</td><td class="sm">${s.classes.length ? esc(s.classes.join('، ')) : 'كل فصول المرحلة'}</td><td>${s.formMode === 'rotate' ? 'بالتناوب' : 'نموذج ' + s.formMode}</td><td>${s.timeLimit ? s.timeLimit + ' د' : 'مفتوح'}</td>
+    return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>الرمز</th><th>الاختبار</th><th>العنوان</th><th>المرحلة</th><th>الفصول</th><th>النموذج</th><th>الوقت</th><th>الحالة</th><th>بدأ/سلّم</th><th>أنشأها</th><th></th></tr></thead><tbody>
+    ${list.map(s => `<tr><td><b class="code" dir="ltr">${s.code}</b></td><td>${s.test === 'torrance' ? `<span class="badge tt">إبداعي – ${s.battery === 'verbal' ? 'لفظي' : 'شكلي'}</span>` : '<span class="badge">مصفوفات</span>'}</td><td>${esc(s.title)}</td><td>${STAGE_NAME[s.stage]}</td><td class="sm">${s.classes.length ? esc(s.classes.join('، ')) : 'كل فصول المرحلة'}</td><td>${s.formMode === 'rotate' ? 'بالتناوب' : 'نموذج ' + s.formMode}</td><td>${s.test === 'torrance' ? (s.timeLimit ? 'مؤقت لكل نشاط' : 'مفتوح') : s.timeLimit ? s.timeLimit + ' د' : 'مفتوح'}</td>
       <td><span class="badge ${s.status === 'open' ? 'green' : 'gray'}">${s.status === 'open' ? 'مفتوحة' : 'مغلقة'}</span></td><td>${s.started} / ${s.submitted}</td><td class="sm">${esc(s.createdBy)}<br>${fmtDate(s.createdAt)}</td>
       <td class="nowrap"><button class="btn sm-btn" data-nav="monitor" data-param="${s.code}">متابعة</button> <button class="btn ghost sm-btn" data-act="showCode" data-code="${s.code}">عرض الرمز</button></td></tr>`).join('')}</tbody></table></div>`;
   }
@@ -449,21 +456,35 @@
   ACT.newSession = async () => {
     const classes = S.meta.classes;
     const m = modal(`<h3>جلسة اختبار جديدة</h3><form id="fSes">
+      <label>الاختبار<select name="test"><option value="raven">اختبار المصفوفات (الاستدلال المجرد)</option><option value="torrance">اختبار التفكير الإبداعي (على نمط تورانس)</option></select></label>
+      <div id="ttOpts" class="row2 hidden"><label>صورة الاختبار<select name="battery"><option value="figural">الصورة الشكلية (رسم) – 30 دقيقة</option><option value="verbal">الصورة اللفظية (كتابة) – 45 دقيقة</option></select></label>
+      <label id="dmWrap">طريقة الرسم<select name="drawMode"><option value="both">الطالب يختار: الشاشة أو الورق</option><option value="screen">الرسم على الشاشة فقط</option><option value="paper">على الورق ثم تصوير الصفحة</option></select></label></div>
+      <p id="ttHint" class="sm muted hidden"></p>
       <label>عنوان الجلسة<input name="title" placeholder="مثال: الكشف عن الموهوبين – الصف الخامس" required></label>
       <div class="row2"><label>المرحلة<select name="stage">${['primary', 'intermediate', 'secondary'].map(s => `<option value="${s}">${STAGE_NAME[s]} (${STAGE_TEST[s]})</option>`).join('')}</select></label>
-      <label>الوقت (دقيقة، 0 = مفتوح)<input name="time" type="number" min="0" max="180"></label></div>
+      <label id="timeWrap">الوقت (دقيقة، 0 = مفتوح)<input name="time" type="number" min="0" max="180"></label>
+      <label id="timedWrap" class="hidden">التوقيت<select name="timed"><option value="1">مؤقت لكل نشاط (كما في الاختبار الأصلي)</option><option value="0">بدون توقيت</option></select></label></div>
       <label>الفصول المشمولة ${isAll() ? '<small class="muted">(اتركها فارغة لتشمل كل فصول المرحلة)</small>' : ''}</label><div class="checks" id="clsBox"></div>
       <div class="row2"><label>توزيع النماذج<select name="form"><option value="rotate">تلقائي بالتناوب (مستحسن)</option><option value="1">النموذج 1 للجميع</option><option value="2">النموذج 2 للجميع</option><option value="3">النموذج 3 للجميع</option><option value="4">النموذج 4 للجميع</option></select></label>
-      <div><label class="chk"><input type="checkbox" name="show"> إظهار الدرجة للطالب بعد التسليم</label>${isAll() ? '<label class="chk"><input type="checkbox" name="retake"> السماح لمن سبق اختباره في المرحلة بإعادته (بنموذج مختلف)</label>' : ''}</div></div>
+      <div><label class="chk" id="showWrap"><input type="checkbox" name="show"> إظهار الدرجة للطالب بعد التسليم</label>${isAll() ? '<label class="chk"><input type="checkbox" name="retake"> السماح لمن سبق اختباره في المرحلة بإعادته (بنموذج مختلف)</label>' : ''}</div></div>
       <div class="row end"><button class="btn ghost" type="button" data-close>إلغاء</button><button class="btn">إنشاء الجلسة</button></div></form>`, { wide: true });
     const f = $('#fSes', m.el);
     const fill = () => { const st = f.stage.value; f.time.value = I.STAGES[st].timeDefault; const list = classes.filter(c => c.stage === st); $('#clsBox', m.el).innerHTML = list.length ? list.map(c => `<label class="chk"><input type="checkbox" value="${esc(c.name)}"> ${esc(c.name)} <small>(${c.count})</small></label>`).join('') : '<p class="muted">لا توجد فصول مسجلة لهذه المرحلة' + (isAll() ? '' : ' ضمن فصولك') + '.</p>'; };
+    const tgl = () => {
+      const tt = f.test.value === 'torrance';
+      $('#ttOpts', m.el).classList.toggle('hidden', !tt); $('#timeWrap', m.el).classList.toggle('hidden', tt); $('#timedWrap', m.el).classList.toggle('hidden', !tt); $('#showWrap', m.el).classList.toggle('hidden', tt);
+      $('#dmWrap', m.el).classList.toggle('hidden', f.battery.value !== 'figural');
+      const h = $('#ttHint', m.el); h.classList.toggle('hidden', !tt);
+      if (tt) h.innerHTML = f.battery.value === 'verbal' ? 'سبعة أنشطة كتابية (45 دقيقة). لطلاب الصفوف 1–3 يُفضّل الصورة الشكلية، أو أن يُملي الطالب إجاباته على المعلم ثم تُدخل من «إدخال ورقي».' : 'ثلاثة أنشطة رسم (30 دقيقة). يُفضّل جهاز لوحي أو حاسب بفأرة، ويمكن الرسم على الورق المطبوع من «نماذج التفكير الإبداعي» ثم تصويره.';
+    };
+    f.test.onchange = tgl; f.battery.onchange = tgl; tgl();
     f.stage.onchange = fill; fill();
     f.onsubmit = async e => {
       e.preventDefault(); const b = $('button:last-child', f); busy(b, true);
       try {
         const cls = $$('#clsBox input:checked', m.el).map(x => x.value);
-        const r = await api('createSession', { session: { title: f.title.value, stage: f.stage.value, timeLimit: Number(f.time.value), classes: cls, formMode: f.form.value, showResult: f.show.checked, allowRetake: f.retake ? f.retake.checked : false } });
+        const tt = f.test.value === 'torrance';
+        const r = await api('createSession', { session: { title: f.title.value, stage: f.stage.value, timeLimit: tt ? Number(f.timed.value) : Number(f.time.value), classes: cls, formMode: f.form.value, showResult: !tt && f.show.checked, allowRetake: f.retake ? f.retake.checked : false, test: tt ? 'torrance' : 'raven', battery: f.battery.value, drawMode: f.drawMode.value } });
         m.close(); toast('تم إنشاء الجلسة'); ACT.showCode({ dataset: { code: r.session.code } }); if (S.page === 'sessions' || S.page === 'home') render();
       } catch (er) { toast(er.message, 'err'); busy(b, false); }
     };
@@ -482,13 +503,14 @@
       const ord = { in_progress: 0, undefined: 1, submitted: 2 };
       all.sort((a, b) => (ord[a.status] - ord[b.status]) || String(a.className).localeCompare(b.className, 'ar') || String(a.name).localeCompare(b.name, 'ar'));
       setPage(`<div class="row between"><h1 class="ph">متابعة الجلسة <span class="code" dir="ltr">${s.code}</span></h1><div><button class="btn ghost" data-act="showCode" data-code="${s.code}">عرض الرمز</button> <button class="btn ${s.status === 'open' ? 'danger' : ''}" data-act="toggleSes" data-code="${s.code}" data-st="${s.status === 'open' ? 'closed' : 'open'}">${s.status === 'open' ? 'إغلاق الجلسة' : 'إعادة فتح الجلسة'}</button></div></div>
-        <p class="muted">${esc(s.title)} — المرحلة ${STAGE_NAME[s.stage]} — ${s.timeLimit ? s.timeLimit + ' دقيقة' : 'وقت مفتوح'} — <span class="badge ${s.status === 'open' ? 'green' : 'gray'}">${s.status === 'open' ? 'مفتوحة' : 'مغلقة'}</span> <small>تحديث تلقائي كل 15 ثانية</small></p>
+        ${s.test === 'torrance' && TT ? TT.monitorBar(s, all) : ''}
+        <p class="muted">${esc(s.title)} — ${s.test === 'torrance' ? 'التفكير الإبداعي (' + (s.battery === 'verbal' ? 'لفظي' : 'شكلي') + ') — ' : ''}المرحلة ${STAGE_NAME[s.stage]} — ${s.test === 'torrance' ? (s.timeLimit ? 'مؤقت لكل نشاط' : 'وقت مفتوح') : s.timeLimit ? s.timeLimit + ' دقيقة' : 'وقت مفتوح'} — <span class="badge ${s.status === 'open' ? 'green' : 'gray'}">${s.status === 'open' ? 'مفتوحة' : 'مغلقة'}</span> <small>تحديث تلقائي كل 15 ثانية</small></p>
         <div class="cards"><div class="stat"><b>${all.length}</b><span>المستهدفون</span></div><div class="stat"><b>${cnt.none}</b><span>لم يبدأ</span></div><div class="stat blue"><b>${cnt.prog}</b><span>يؤدي الآن</span></div><div class="stat green"><b>${cnt.done}</b><span>سلّم</span></div></div>
         <div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>الطالب</th><th>الرقم</th><th>الفصل</th><th>الحالة</th><th>النموذج</th><th>التقدم</th><th>آخر نشاط</th><th>الزمن</th><th></th></tr></thead><tbody>
         ${all.map(a => { const st = a.status === 'submitted' ? '<span class="badge green">سلّم</span>' : a.status === 'in_progress' ? '<span class="badge blue">يؤدي</span>' : '<span class="badge gray">لم يبدأ</span>';
           const stale = a.status === 'in_progress' && now - a.lastSeen > 3 * 60000;
           return `<tr class="${stale ? 'stale' : ''}"><td>${esc(a.name)}</td><td dir="ltr">${esc(a.studentId)}</td><td>${esc(a.className)}</td><td>${st}${stale ? ' <span class="badge warnb" title="لم يُحفظ تقدم منذ أكثر من 3 دقائق">منقطع؟</span>' : ''}</td><td>${a.form || '—'}</td>
-          <td>${a.status ? `<div class="pbar"><span style="width:${Math.round((a.progress || 0) / N * 100)}%"></span></div><small>${a.progress || 0}/${N}</small>` : ''}</td><td class="sm">${a.lastSeen ? ago(a.lastSeen, now) : ''}</td><td class="sm">${a.startedAt ? fmtDur(((a.submittedAt || now) - a.startedAt) / 1000) : ''}</td>
+          <td>${a.status ? `<div class="pbar"><span style="width:${Math.round((a.progress || 0) / N * 100)}%"></span></div><small>${a.progress || 0}/${N}${s.test === 'torrance' ? ' نشاط' : ''}</small>` : (s.test === 'torrance' && TT ? `<button class="btn ghost sm-btn" data-act="ttPaper" data-code="${s.code}" data-sid="${esc(a.studentId)}">إدخال ورقي</button>` : '')}</td><td class="sm">${a.lastSeen ? ago(a.lastSeen, now) : ''}</td><td class="sm">${a.startedAt ? fmtDur(((a.submittedAt || now) - a.startedAt) / 1000) : ''}</td>
           <td class="nowrap">${a.status === 'in_progress' ? `<button class="btn ghost sm-btn" data-act="attOp" data-op="forceSubmit" data-id="${a.attemptId}">تسليم إجباري</button>` : ''} ${a.status && isAll() ? `<button class="btn ghost sm-btn" data-act="attOp" data-op="reset" data-id="${a.attemptId}">إلغاء المحاولة</button>` : ''}</td></tr>`; }).join('')}
         </tbody></table></div></div>
         <div class="card guide"><ul><li><b>تسليم إجباري</b>: يسلّم آخر إجابات محفوظة على الخادم (عند انتهاء الحصة مثلاً).</li><li><b>إلغاء المحاولة</b>: يحذف المحاولة ويُلغي نتيجتها ليتمكن الطالب من البدء من جديد.</li><li>«منقطع؟» تعني أن جهاز الطالب لم يرسل تقدماً منذ 3 دقائق؛ يكفي أن يدخل من جديد بالرقم والرمز.</li></ul></div>`);
@@ -779,7 +801,9 @@
       <div class="card"><h3>مفاتيح الإجابة</h3><p>الحالة: ${keysOk ? '<span class="badge green">مرفوعة ومطابقة</span>' : '<span class="badge warnb">غير مرفوعة أو قديمة</span>'} — ${k.count} مفتاحاً، الإصدار ${esc(k.version || '—')}، آخر رفع ${fmtDate(k.uploadedAt, true)}</p>
         <p class="sm muted">المفاتيح تُحفظ على الخادم فقط ويُصحَّح الاختبار هناك، فلا تصل الإجابات الصحيحة إلى جهاز الطالب مع النتيجة. تُرفع تلقائياً عند دخول المدير إذا كانت ناقصة.</p>
         <button class="btn" data-act="uploadKeys">رفع المفاتيح وإعادة تصحيح النتائج</button></div>
+      ${TT ? TT.settingsHtml() : ''}
       ${DEMO ? '<div class="card"><h3>الوضع التجريبي</h3><p>البيانات محفوظة في هذا المتصفح فقط.</p><button class="btn danger" data-act="demoReset">إعادة ضبط البيانات التجريبية</button></div>' : ''}`);
+    if (TT) TT.bindSettings();
     $('#fSet').onsubmit = async e => { e.preventDefault(); const f = e.target; const b = $('button', f); busy(b, true); try { const r = await api('saveSettings', { settings: { schoolName: f.schoolName.value, giftedPct: f.giftedPct.value, minNorm: f.minNorm.value } }); S.meta.settings = r.settings; toast('تم الحفظ'); } catch (er) { toast(er.message, 'err'); } finally { busy(b, false); } };
   };
 
@@ -807,7 +831,7 @@
   /* ---------------- السجل ---------------- */
   PAGES.log = async () => {
     const r = await api('listLog');
-    const names = { login: 'دخول', setup: 'تهيئة', createUser: 'إنشاء مستخدم', updateUser: 'تعديل مستخدم', deleteUser: 'حذف مستخدم', changePassword: 'تغيير كلمة المرور', importStudents: 'استيراد طلاب', deleteStudent: 'حذف طالب', createSession: 'إنشاء جلسة', session_open: 'فتح جلسة', session_closed: 'إغلاق جلسة', forceSubmit: 'تسليم إجباري', resetAttempt: 'إلغاء محاولة', result_void: 'إلغاء نتيجة', result_valid: 'استعادة نتيجة', uploadKeys: 'رفع المفاتيح', saveSettings: 'حفظ الإعدادات' };
+    const names = { login: 'دخول', setup: 'تهيئة', createUser: 'إنشاء مستخدم', updateUser: 'تعديل مستخدم', deleteUser: 'حذف مستخدم', changePassword: 'تغيير كلمة المرور', importStudents: 'استيراد طلاب', deleteStudent: 'حذف طالب', createSession: 'إنشاء جلسة', session_open: 'فتح جلسة', session_closed: 'إغلاق جلسة', forceSubmit: 'تسليم إجباري', resetAttempt: 'إلغاء محاولة', result_void: 'إلغاء نتيجة', result_valid: 'استعادة نتيجة', uploadKeys: 'رفع المفاتيح', saveSettings: 'حفظ الإعدادات', ttForceSubmit: 'تسليم إجباري (إبداعي)', ttReview: 'مراجعة تصحيح', ttResult_void: 'إلغاء نتيجة (إبداعي)', ttResult_valid: 'استعادة نتيجة (إبداعي)', ttRescore: 'إعادة تصحيح بالذكاء الاصطناعي', ttPaperEntry: 'إدخال ورقي', ttRecalc: 'إعادة حساب الأصالة', aiKey: 'مفتاح Gemini', aiTrigger: 'التصحيح التلقائي' };
     setPage(`<h1 class="ph">سجل العمليات</h1><div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>الوقت</th><th>المستخدم</th><th>العملية</th><th>التفاصيل</th></tr></thead><tbody>${r.log.map(l => `<tr><td class="sm">${fmtDate(l.ts, true)}</td><td dir="ltr">${esc(l.user)}</td><td>${names[l.action] || esc(l.action)}</td><td class="sm">${esc(l.detail)}</td></tr>`).join('')}</tbody></table></div></div>`);
   };
 
@@ -819,9 +843,13 @@
     await sleep(30);
     await seedDemo(p => { const el = $('#seedP'); if (el) el.style.width = p + '%'; });
   }
+  /* ---------------- ربط وحدة اختبار التفكير الإبداعي ---------------- */
+  const TT = window.TTUI ? window.TTUI({ api, modal, confirmBox, toast, busy, esc, $, $$, sleep, pad, fmtDate, fmtDur, ago, downloadFile, toCSV, S, PAGES, ACT, F, view, render, setPage, stopTimers, isAll, role, logoSvg, getResults, filterBar, bindFilters, levelBadge, histSvg, statTable, DEMO, CFG, STAGE_NAME, Core: window.Core, LocalDB: window.LocalDB }) : null;
+
   async function boot() {
     if (NO_SERVER) { view.innerHTML = '<div class="stu-card"><h2>الموقع غير مربوط بالخادم</h2><p>ضع رابط Apps Script في الملف assets/config.js ثم أعد تحميل الصفحة.</p></div>'; return; }
     if (DEMO && !LocalDB.isSeeded()) await runSeed();
+    if (TT) TT.restore();
     try { const saved = JSON.parse(localStorage.getItem('rvstu') || 'null'); if (saved && saved.stoken) { const n = I.itemCount(saved.attempt.stage); let local = null; try { local = JSON.parse(localStorage.getItem('rvatt:' + saved.attempt.attemptId) || 'null'); } catch (e) { }
       STU = Object.assign({}, saved, { answers: local ? local.answers : Array(n).fill(0), times: local ? local.times : Array(n).fill(0), cur: local ? local.cur || 0 : 0, phase: local && local.phase === 'test' ? 'test' : 'welcome', lastSave: Date.now(), unsaved: 1, items: I.getForm(saved.attempt.stage, saved.attempt.form).items }); } } catch (e) { STU = null; }
     render();
