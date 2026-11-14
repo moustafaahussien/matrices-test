@@ -499,7 +499,7 @@ window.TTUI = function (A) {
     };
   }
 
-  /* ---------------- الترشيح والملف الموحّد ---------------- */
+  /* ---------------- الملف الموحّد والترشيح ---------------- */
   // يبني «ملف الطالب الموحّد» لكل طلاب المرحلة: المصفوفات + الإبداع اللفظي + الإبداع الشكلي
   function buildPeople(st) {
     const tt = enriched().filter(r => r.stage === st && r.status === 'valid');
@@ -598,7 +598,7 @@ window.TTUI = function (A) {
     if (p) openUnified(p); else toast('لا توجد نتائج مصححة لهذا الطالب', 'err');
   }
 
-  /* ---------------- الترشيح والملف الموحّد ---------------- */
+  /* ---------------- الملف الموحّد والترشيح ---------------- */
   PAGES.ttNominations = async () => {
     await loadTT(); await A.getResults(true);
     const stageF = { v: TF.stage || 'primary' };
@@ -607,7 +607,7 @@ window.TTUI = function (A) {
       const { tt, people } = buildPeople(st); S._ttAll = tt; S._ttPeople = people;
       const cell = x => x ? `${x._pct != null ? x._pct : '—'} ${x._nominated ? '<span class="badge gold">★</span>' : x._borderline ? '<span class="badge lv2">حدّي</span>' : ''}` : '<span class="muted">—</span>';
       const sec = (title, list) => `<div class="card"><h3>${title} <span class="badge gold">${list.length}</span></h3>${list.length ? `<div class="tbl-wrap"><table class="tbl click"><thead><tr><th>الطالب</th><th>الفصل</th><th>المؤشر</th><th>المئيني</th><th>المستوى</th><th>ملاحظات</th></tr></thead><tbody>${list.sort((a, b) => b._pct - a._pct).map(r => `<tr data-act="ttReport" data-id="${r.resultId}"><td>${esc(r.name)}</td><td>${esc(r.className)}</td><td><b>${r._index}</b></td><td>${r._pct}</td><td>${lvl(r)}</td><td class="sm">${esc((r._flags || []).join(' – '))}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">لا يوجد.</p>'}</div>`;
-      setPage(`<div class="row between"><h1 class="ph">الترشيح والملف الموحّد</h1><div><button class="btn" data-act="ttUnifiedPrintAll">طباعة التقارير الموحّدة للمرشحين</button> <button class="btn ghost" data-act="ttExportPeople">تصدير الملف الموحّد</button></div></div>
+      setPage(`<div class="row between"><h1 class="ph">الملف الموحّد والترشيح</h1><div><button class="btn" data-act="ttUnifiedPrintAll">طباعة التقارير الموحّدة للمرشحين</button> <button class="btn ghost" data-act="ttExportPeople">تصدير الملف الموحّد</button></div></div>
         <div class="filters"><label>المرحلة<select id="nSt">${['primary', 'intermediate', 'secondary'].map(s => `<option value="${s}" ${s === st ? 'selected' : ''}>${STAGE_NAME[s]}</option>`).join('')}</select></label>
         <label class="grow">التقرير الموحّد لأي طالب<input id="nQ" list="nQl" placeholder="اكتب اسم الطالب أو رقمه ثم اختره"><datalist id="nQl">${people.map(p => `<option value="${esc(p.name)} — ${esc(p.studentId)}"></option>`).join('')}</datalist></label></div>
         <div class="card guide"><p>يجمع الملف الموحّد محكّين من محكات الكشف: <b>القدرة العقلية</b> (اختبار المصفوفات) و<b>التفكير الإبداعي</b> (الصورتان اللفظية والشكلية). يُرشَّح الطالب في محك الإبداع إذا كان مؤشره الإبداعي في المئيني ${gp} فأكثر. يمكن تعديل الحدّين من «الإعدادات». <b>اضغط على أي طالب لعرض تقريره الموحّد وطباعته.</b></p></div>

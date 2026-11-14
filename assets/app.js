@@ -344,12 +344,12 @@
   const NAV = [
     { id: 'home', t: 'الرئيسية', ic: '⌂', roles: ['admin', 'coordinator', 'teacher'] },
     { id: 'sessions', t: 'جلسات الاختبار', ic: '◷', roles: ['admin', 'coordinator', 'teacher'] },
+    { id: 'ttNominations', t: 'الملف الموحّد والترشيح', ic: '✪', roles: ['admin', 'coordinator'], g: 'الاختباران معاً' },
     { id: 'results', t: 'نتائج المصفوفات', ic: '▤', roles: ['admin', 'coordinator', 'teacher'], g: 'المصفوفات' },
     { id: 'nominations', t: 'ترشيح المصفوفات', ic: '★', roles: ['admin', 'coordinator'] },
     { id: 'analysis', t: 'تحليل المصفوفات', ic: '◔', roles: ['admin', 'coordinator'] },
     { id: 'preview', t: 'نماذج المصفوفات', ic: '▦', roles: ['admin', 'coordinator'] },
     { id: 'ttResults', t: 'نتائج التفكير الإبداعي', ic: '✎', roles: ['admin', 'coordinator', 'teacher'], g: 'التفكير الإبداعي' },
-    { id: 'ttNominations', t: 'الترشيح والملف الموحّد', ic: '✪', roles: ['admin', 'coordinator'] },
     { id: 'ttAnalysis', t: 'تحليل التفكير الإبداعي', ic: '◕', roles: ['admin', 'coordinator'] },
     { id: 'ttPreview', t: 'نماذج التفكير الإبداعي', ic: '❖', roles: ['admin', 'coordinator'] },
     { id: 'students', t: 'الطلاب', ic: '☰', roles: ['admin', 'coordinator', 'teacher'], g: 'الإدارة' },
@@ -632,6 +632,7 @@
       const gp = S.meta.settings.giftedPct;
       const sec = (title, list, note, cls) => `<div class="card"><h3>${title} <span class="badge ${cls}">${list.length}</span></h3><p class="sm muted">${note}</p>${list.length ? `<div class="tbl-wrap"><table class="tbl click"><thead><tr><th>الطالب</th><th>الرقم</th><th>الفصل</th><th>الدرجة</th><th>المئيني</th><th>المعيارية</th><th>المستوى</th><th>ملاحظات</th></tr></thead><tbody>${list.sort((a, b) => b._pct - a._pct || b._score - a._score).map(r => `<tr data-act="report" data-id="${r.resultId}"><td>${esc(r.name)}</td><td dir="ltr">${esc(r.studentId)}</td><td>${esc(r.className)}</td><td><b>${r.score}</b></td><td>${r._pct}</td><td>${r._ss}</td><td>${levelBadge(r)}</td><td class="sm">${esc(r._flags.join(' – '))}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">لا يوجد.</p>'}</div>`;
       setPage(`<div class="row between"><h1 class="ph">الترشيح للموهبة</h1><div><button class="btn ghost" data-act="exportCSV">تصدير</button> <button class="btn ghost" data-act="printPage">طباعة</button></div></div>${filterBar({})}
+        <div class="card info-c">لعرض الترشيح النهائي الذي يجمع المصفوفات والتفكير الإبداعي معاً، والتقرير الموحّد لكل طالب: <button class="btn sm-btn" data-nav="ttNominations">الملف الموحّد والترشيح</button></div>
         <div class="card guide"><p>معيار الترشيح الحالي: <b>الرتبة المئينية ${gp} فأكثر</b> داخل مجموعة المقارنة، مع <b>اتساق نمط الإجابة</b> (الفرق بين أداء الطالب والمتوقع لا يتجاوز ±2 إلا في مجموعة واحدة بحد أقصى ±3، والإجابات السريعة جداً أقل من 20%). يمكن للمدير تعديل الحد من «الإعدادات».</p></div>
         ${sec('المرشحون', rows.filter(r => r._nominated), 'يُحالون للمرحلة التالية (مقياس موهبة للقدرات العقلية المتعددة، ترشيح المعلمين، قوائم السمات).', 'gold')}
         ${sec('حالات حدّية', rows.filter(r => r._borderline), `المئيني بين ${gp - 5} و ${gp - 1}؛ تُدرس مع المحكات الأخرى.`, 'lv2')}
