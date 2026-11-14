@@ -512,7 +512,7 @@ var TTCore = (function () {
     function aiSaveKey(p) {
       var s = K.staffAuth(p.token); K.need(s, ['admin']);
       var k = str(p.key);
-      if (k && !/^[A-Za-z0-9_\-]{20,80}$/.test(k)) err('صيغة المفتاح غير صحيحة');
+      if (k && !/^[A-Za-z0-9_.\-]{20,300}$/.test(k)) err('صيغة المفتاح غير صحيحة: انسخ المفتاح كاملاً دون مسافات');
       setSecret('GEMINI_KEY', k); setSecret('aiModels', ''); setSecret('aiBad', ''); setSecret('aiLastError', '');
       K.log(s.username, 'aiKey', k ? 'تحديث المفتاح' : 'حذف المفتاح');
       return aiStatus(p);
