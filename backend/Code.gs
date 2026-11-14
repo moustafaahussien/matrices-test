@@ -1417,20 +1417,24 @@ var TTCore = (function () {
       var c = J(secret('aiModels'), {}); var list = c.list || [];
       if (!list.length || now() - Number(c.ts || 0) > 24 * 3600 * 1000) { try { list = listModels(key); } catch (e) { if (!list.length) throw e; } }
       var bad = J(secret('aiBad'), {}); var ok = list.filter(function (m) { return !bad[m]; });
-      return (ok.length ? ok : list).slice(0, 4);
+      return (ok.length ? ok : list).slice(0, 5);
     }
     function callModel(key, prep) {
-      var models = modelOrder(key), lastErr = null;
+      var models = modelOrder(key), lastErr = null, quota = 0, busyN = 0;
       for (var i = 0; i < models.length; i++) {
         var m = models[i];
         var r = DB().http(API + 'models/' + encodeURIComponent(m) + ':generateContent', { method: 'post', headers: { 'x-goog-api-key': key }, payload: JSON.stringify(E.geminiBody(prep.prompt, prep.images)) });
         countCall();
-        if (r.code === 200) return { text: E.geminiText(J(r.text)), model: m };
-        if (r.code === 429) { var e = new Error('تم بلوغ حد الطلبات المجاني مؤقتاً (429)'); e.quota = true; throw e; }
-        if (r.code === 404 || (r.code === 400 && /not (found|supported)|unsupported/i.test(r.text))) { var bad = J(secret('aiBad'), {}); bad[m] = 1; setSecret('aiBad', JSON.stringify(bad)); lastErr = new Error(httpMsg(r)); continue; }
+        if (r.code === 200) { try { return { text: E.geminiText(J(r.text)), model: m }; } catch (e) { lastErr = e; continue; } }
         if (r.code === 401 || r.code === 403) { var e2 = new Error('مفتاح Gemini غير صالح أو غير مفعّل (' + r.code + ')'); e2.fatal = true; throw e2; }
-        lastErr = new Error(httpMsg(r)); if (r.code >= 500) lastErr.later = true; break;
+        if (r.code === 404 || (r.code === 400 && /not (found|supported)|unsupported/i.test(r.text))) { var bad = J(secret('aiBad'), {}); bad[m] = 1; setSecret('aiBad', JSON.stringify(bad)); lastErr = new Error(httpMsg(r)); continue; }
+        // الازدحام المؤقت (5xx) أو حد الطلبات لنموذج بعينه (429): ننتقل إلى النموذج التالي
+        if (r.code === 429) { quota++; lastErr = new Error('تم بلوغ حد الطلبات المجاني مؤقتاً (429)'); continue; }
+        if (r.code >= 500) { busyN++; lastErr = new Error('النماذج مزدحمة مؤقتاً لدى Google، ستُعاد المحاولة تلقائياً (' + r.code + ')'); continue; }
+        lastErr = new Error(httpMsg(r)); break;
       }
+      if (quota && quota + busyN >= models.length) { var q = new Error('تم بلوغ حد الطلبات المجاني مؤقتاً لكل النماذج المتاحة (429)'); q.quota = true; throw q; }
+      if (busyN) { var b = lastErr || new Error('ازدحام مؤقت'); b.later = true; b.message = 'النماذج مزدحمة مؤقتاً لدى Google، ستُعاد المحاولة تلقائياً'; throw b; }
       throw lastErr || new Error('لا يوجد نموذج متاح');
     }
     // يعالج مهام التصحيح المتاحة ضمن ميزانية زمنية — يستدعيه المشغّل الزمني أو زر «صحّح الآن»

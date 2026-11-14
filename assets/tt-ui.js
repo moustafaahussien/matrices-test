@@ -670,10 +670,9 @@ window.TTUI = function (A) {
       for (const mdl of models) {
         const res = await fetch(GAPI + 'models/' + encodeURIComponent(mdl) + ':generateContent', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': r.key }, body: JSON.stringify(E.geminiBody(r.prompt, r.images)) });
         if (res.status === 200) { const j = await res.json(); let text = ''; try { text = E.geminiText(j); } catch (e) { last = e.message; break; } await api('aiApply', { jobId: r.job.jobId, text, model: mdl, models }); ok = true; done++; break; }
-        if (res.status === 429) { await api('aiApply', { jobId: r.job.jobId, error: 'حد الطلبات المجاني (429)', quota: true }); prog('تم بلوغ حد الطلبات المجاني مؤقتاً، أعد المحاولة لاحقاً'); return; }
-        last = 'HTTP ' + res.status; if (res.status !== 404 && res.status !== 400) break;
+        last = 'HTTP ' + res.status; if (res.status === 429 || res.status >= 500 || res.status === 404 || res.status === 400) continue; break;
       }
-      if (!ok) await api('aiApply', { jobId: r.job.jobId, error: last || 'فشل' });
+      if (!ok) { await api('aiApply', { jobId: r.job.jobId, error: last || 'فشل', quota: /429|50\d/.test(last) }); if (/429|50\d/.test(last)) { prog('النماذج مزدحمة أو بلغت الحد المجاني مؤقتاً؛ سيُعاد التصحيح لاحقاً'); return; } }
       prog(`تم تصحيح ${done} مهمة…`);
       await sleep(Math.max(500, Number(S.meta.settings.aiPace || 5) * 1000));
     }
