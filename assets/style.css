@@ -222,3 +222,14 @@ body:has(.login-wrap){background:#0d2f39}body:has(.login-wrap) .site-foot{color:
 .login-wrap{min-height:calc(100vh - 30px)}
 .shell{min-height:calc(100vh - 30px)}
 @media print{.site-foot{display:block!important;font-size:9px;color:#777;padding-top:12px}}
+/* ===== التقرير الموحّد ===== */
+.un-rec{border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:10px 0;background:#f4f8fb;font-size:16px}.un-rec.gold{background:#fff6d9;border-color:#f0d27a}.un-rec.lv2{background:#e9f7ef;border-color:#b5e0c4}
+.un-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:10px 0}
+.un-box{border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center;background:#f8fafb}.un-box.nom{background:#fff9e6;border-color:#f0d27a}
+.un-box h4{margin:0 0 6px;font-size:14px;color:var(--pri)}.un-big{font-size:32px;font-weight:800;color:var(--pri)}.un-big small{font-size:13px;color:var(--mut)}
+.un-sub{font-size:13px;margin:4px 0}.un-meta{font-size:11px;color:var(--mut);margin-bottom:4px}.un-none{color:#9aa4ad;padding:20px 0}
+.un-chart{width:100%;max-width:620px;display:block;margin:4px auto}
+.un-dims{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+.un-foot{text-align:center;font-size:10px;color:#8a96a3;margin-top:10px}
+@media (max-width:900px){.un-grid{grid-template-columns:1fr}}
+@media print{.pg-break{break-after:page}.un-box,.un-dims>div{break-inside:avoid}}

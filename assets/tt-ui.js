@@ -461,12 +461,13 @@ window.TTUI = function (A) {
       <h4>الإجابات وتصحيحها</h4><div class="tt-resps">${respHtml(r, bat, D)}</div>
       <p class="disc">اختبار مبني على نمط اختبارات تورانس للتفكير الإبداعي، ومثيراته أصلية. الأصالة محسوبة من ندرة الفكرة بين طلاب المدرسة، والمعايير محلية وليست معايير رسمية. نتيجة هذا الاختبار محك واحد ضمن محكات الكشف عن الموهبة.</p>
       <div class="sign"><div>منسق الموهبة: ..................</div><div>التوقيع: ..................</div><div>التاريخ: ..................</div></div></div>
-      <div class="row end noprint">${isAll() ? `<button class="btn ghost" data-r="review">مراجعة التصحيح وتعديله</button>${S.meta.tt && S.meta.tt.ai ? '<button class="btn ghost" data-r="rescore">إعادة التصحيح بالذكاء الاصطناعي</button>' : ''}${r.status === 'void' ? '<button class="btn ghost" data-r="valid">استعادة النتيجة</button>' : '<button class="btn ghost danger-t" data-r="void">إلغاء النتيجة</button>'}` : ''}<button class="btn" onclick="window.print()">طباعة التقرير</button></div>`;
+      <div class="row end noprint">${isAll() ? `<button class="btn ghost" data-r="unified">التقرير الموحّد</button><button class="btn ghost" data-r="review">مراجعة التصحيح وتعديله</button>${S.meta.tt && S.meta.tt.ai ? '<button class="btn ghost" data-r="rescore">إعادة التصحيح بالذكاء الاصطناعي</button>' : ''}${r.status === 'void' ? '<button class="btn ghost" data-r="valid">استعادة النتيجة</button>' : '<button class="btn ghost danger-t" data-r="void">إلغاء النتيجة</button>'}` : ''}<button class="btn" onclick="window.print()">طباعة التقرير</button></div>`;
     const m = modal(html, { wide: true, cls: 'rep-modal' });
     m.el.addEventListener('click', async e => {
       const li = e.target.closest('[data-loadimg]');
       if (li) { busy(li, true); try { const im = await api('ttImage', { imageId: li.dataset.loadimg }); li.parentElement.innerHTML = `<img src="${im.dataUrl}" alt="رسم الطالب">`; } catch (er) { toast(er.message, 'err'); busy(li, false); } return; }
       const b = e.target.closest('[data-r]'); if (!b) return; const k = b.dataset.r;
+      if (k === 'unified') { m.close(); unifiedFor(r.studentId, r.stage); return; }
       if (k === 'review') { m.close(); reviewModal(r, D); return; }
       if (k === 'rescore') { if (!(await confirmBox('ستُرسل إجابات الطالب للتصحيح من جديد بالذكاء الاصطناعي، وتُستبدل الدرجات الآلية الحالية (التعديلات البشرية تبقى). متابعة؟', 'إعادة التصحيح'))) return; try { await api('ttRescore', { resultId: r.resultId }); m.close(); toast('أُضيفت للطابور'); render(); } catch (er) { toast(er.message, 'err'); } return; }
       if (!(await confirmBox(k === 'void' ? 'إلغاء النتيجة يستبعدها من التحليل والترشيح ويسمح للطالب بإعادة الاختبار. متابعة؟' : 'استعادة النتيجة؟', 'تنفيذ', k === 'void'))) return;
@@ -499,35 +500,125 @@ window.TTUI = function (A) {
   }
 
   /* ---------------- الترشيح والملف الموحّد ---------------- */
+  // يبني «ملف الطالب الموحّد» لكل طلاب المرحلة: المصفوفات + الإبداع اللفظي + الإبداع الشكلي
+  function buildPeople(st) {
+    const tt = enriched().filter(r => r.stage === st && r.status === 'valid');
+    const rv = AN.enrich((S.results || []).map(x => Object.assign({}, x)), S.meta.settings, 'grade').filter(r => r.stage === st && r.status === 'valid');
+    const P = {};
+    const add = (r, k) => { const p = P[r.studentId] = P[r.studentId] || { studentId: r.studentId, name: r.name, className: r.className, grade: r.grade, gender: r.gender, ageMonths: r.ageMonths, stage: st }; const prev = p[k]; if (!prev || r.submittedAt > prev.submittedAt) p[k] = r; };
+    rv.forEach(r => add(r, 'rv')); tt.forEach(r => add(r, r.battery));
+    const people = Object.values(P).map(p => {
+      const n = ['rv', 'verbal', 'figural'].filter(k => p[k] && p[k]._nominated); p.noms = n.length; p.max = Math.max(...['rv', 'verbal', 'figural'].map(k => p[k] ? p[k]._pct || 0 : 0));
+      const ab = !!(p.rv && p.rv._nominated), cr = !!((p.verbal && p.verbal._nominated) || (p.figural && p.figural._nominated));
+      p.ab = ab; p.cr = cr;
+      p.rec = ab && cr ? ['★★ مرشح: قدرة عقلية + تفكير إبداعي', 'gold'] : ab ? ['★ مرشح: قدرة عقلية', 'gold'] : cr ? ['★ مرشح: تفكير إبداعي', 'gold'] : ['rv', 'verbal', 'figural'].some(k => p[k] && p[k]._borderline) ? ['حدّي في أحد المحكات', 'lv2'] : ['', ''];
+      return p;
+    }).sort((x, y) => y.noms - x.noms || y.max - x.max);
+    return { tt, rv, people };
+  }
+
+  /* ---------------- التقرير الموحّد للطالب ---------------- */
+  const STAGE_TEST = { primary: 'المصفوفات الملونة', intermediate: 'المصفوفات القياسية', secondary: 'المصفوفات المتقدمة' };
+  function unifiedChart(p) {
+    const gp = Number(S.meta.settings.giftedPct || 90), tgp = Number(S.meta.settings.ttGiftedPct || 90);
+    const bars = [['المصفوفات (القدرة العقلية)', p.rv, gp], ['الإبداع اللفظي', p.verbal, tgp], ['الإبداع الشكلي', p.figural, tgp]];
+    // من اليمين إلى اليسار: التسميات يميناً، والأعمدة تمتد نحو اليسار
+    const W = 600, rowH = 52, top = 30, labW = 190, R = W - labW, bw = R - 40, H = top + bars.length * rowH + 30;
+    const x = v => R - bw * v / 100;
+    let g = `<svg viewBox="0 0 ${W} ${H}" class="un-chart" xmlns="http://www.w3.org/2000/svg" direction="ltr" font-family="Tajawal,Tahoma,Arial">`;
+    const lim = Math.min(gp, tgp);
+    g += `<rect x="${x(100)}" y="${top - 8}" width="${x(lim) - x(100)}" height="${H - 22 - top}" fill="#fff4cf" opacity=".8"/>`;
+    g += `<text x="${x(lim) - 4}" y="${top - 12}" font-size="11" fill="#8a6200" text-anchor="end">منطقة الترشيح</text>`;
+    [0, 25, 50, 75, 100].forEach(v => { g += `<line x1="${x(v)}" y1="${top - 8}" x2="${x(v)}" y2="${H - 26}" stroke="#e4e9ee"/><text x="${x(v)}" y="${H - 10}" font-size="11" fill="#7a8a96" text-anchor="middle">${v}</text>`; });
+    bars.forEach(([lab, r, lm], i) => {
+      const y = top + i * rowH + 8;
+      g += `<text x="${W - 6}" y="${y + 21}" font-size="13" fill="#26323c" text-anchor="end" font-weight="700">${lab}</text>`;
+      if (!r) { g += `<text x="${R - 6}" y="${y + 21}" font-size="12" fill="#9aa4ad" text-anchor="end">لم يُختبر بعد</text>`; return; }
+      const v = r._pct || 0, col = r._nominated ? '#d9a400' : r._borderline ? '#2f9e5b' : '#2b7a8c';
+      g += `<rect x="${x(v)}" y="${y + 4}" width="${Math.max(2, R - x(v))}" height="24" rx="5" fill="${col}"/>`;
+      g += `<text x="${Math.max(x(v) - 6, 4)}" y="${y + 21}" font-size="13" font-weight="800" fill="#26323c" text-anchor="end">${r._nominated ? '★ ' : ''}${v}</text>`;
+      g += `<line x1="${x(lm)}" y1="${y}" x2="${x(lm)}" y2="${y + 32}" stroke="#c0392b" stroke-width="2" stroke-dasharray="4 3"/>`;
+    });
+    return g + '</svg>';
+  }
+  function unifiedText(p) {
+    if (p.ab && p.cr) return 'يجمع الطالب بين قدرة عقلية عالية وتفكير إبداعي مرتفع، وهذا أقوى أنماط الموهبة. يُرشَّح للمرحلة التالية من الكشف (مقياس موهبة للقدرات العقلية المتعددة)، ويُقترح إلحاقه ببرامج إثرائية تجمع بين التحدي الأكاديمي والمشروعات الإبداعية.';
+    if (p.ab) return 'تفوّق الطالب في القدرة العقلية (الاستدلال المجرد)، بينما أداؤه في التفكير الإبداعي ' + (p.verbal || p.figural ? 'في حدود أقرانه أو أقل من حد الترشيح' : 'لم يُقس بعد') + '. يُرشَّح للمرحلة التالية من الكشف، ويُستحسن تنمية مهارات التفكير الإبداعي لديه (توليد الأفكار، والمرونة، وتحمّل الغموض).';
+    if (p.cr) return 'أظهر الطالب تفكيراً إبداعياً مرتفعاً، ' + (p.rv ? 'بينما أداؤه في اختبار المصفوفات أقل من حد الترشيح' : 'ولم يؤدِّ اختبار المصفوفات بعد') + '. هذا النمط شائع لدى المبدعين الذين قد لا يظهر تفوقهم في الاختبارات التقليدية؛ يُرشَّح في محك الإبداع، ويُنصح بدعمه بترشيح المعلمين وملف أعماله.';
+    if (['rv', 'verbal', 'figural'].some(k => p[k] && p[k]._borderline)) return 'نتائج الطالب قريبة من حد الترشيح في محك واحد على الأقل (حالة حدّية). تُدرس حالته مع المحكات الأخرى: ترشيح المعلمين، والتحصيل الدراسي، وقوائم السمات، ويمكن إعادة اختباره بنموذج مختلف.';
+    return 'نتائج الطالب في حدود أقرانه في المحكات التي أدّاها، ولا تكفي وحدها للترشيح في هذه الدورة. يمكن إعادة دراسة حالته إذا رشّحه معلموه أو ظهرت لديه مؤشرات تفوق أخرى.';
+  }
+  function unifiedHtml(p) {
+    const sch = S.meta.settings.schoolName, rv = p.rv, v = p.verbal, f = p.figural;
+    const box = (title, r, sub, big) => `<div class="un-box ${r && r._nominated ? 'nom' : ''}"><h4>${title}</h4>${r ? `<div class="un-big">${big}</div><div class="un-sub">المئيني <b>${r._pct}</b> — ${r._level ? `<span class="badge ${r._level.cls}">${r._level.code}</span> ${esc(r._level.label)}` : ''}</div><div class="un-meta">${sub}</div>${r._nominated ? '<div class="badge gold">★ مرشح</div>' : r._borderline ? '<div class="badge lv2">حدّي</div>' : ''}` : '<div class="un-none">لم يُختبر بعد</div>'}</div>`;
+    const dims = (r, bat) => r ? TA.ALL_DIMS[bat].filter(d => !(bat === 'figural' && d === 'flexibility')).map(d => `<tr><td>${DIMN[d]}</td><td>${r[d]}</td><td><b>${r._ss ? r._ss[d] : '—'}</b></td><td>${r._pctD ? r._pctD[d] : '—'}</td></tr>`).join('') : '';
+    const flags = [].concat(rv && rv._flags && !rv._consistent ? ['المصفوفات: ' + rv._flags.join(' – ')] : [], v && v._flags ? v._flags.map(x => 'اللفظي: ' + x) : [], f && f._flags ? f._flags.map(x => 'الشكلي: ' + x) : []);
+    return `<div class="report unified"><div class="rep-head"><div class="logo sm">${logoSvg()}</div><div><h2>التقرير الموحّد للكشف عن الموهبة</h2><p>${esc(sch)} — برنامج الكشف عن الموهوبين</p></div></div>
+      <table class="info"><tr><th>الطالب</th><td>${esc(p.name)}</td><th>رقم الطالب</th><td dir="ltr">${esc(p.studentId)}</td></tr><tr><th>الصف / الفصل</th><td>${esc(p.grade)} — ${esc(p.className)}</td><th>العمر</th><td>${p.ageMonths ? Math.floor(p.ageMonths / 12) + ' سنة و' + (p.ageMonths % 12) + ' شهر' : '—'}</td></tr><tr><th>المرحلة</th><td>${STAGE_NAME[p.stage]}</td><th>تاريخ التقرير</th><td>${fmtDate(Date.now())}</td></tr></table>
+      <div class="un-rec ${p.rec[1] || ''}"><b>التوصية:</b> ${p.rec[0] || 'لا يُرشَّح في هذه الدورة'}</div>
+      <div class="un-grid">
+        ${box('القدرة العقلية (المصفوفات)', rv, rv ? `${STAGE_TEST[rv.stage]} — نموذج ${rv.form} — ${fmtDate(rv.submittedAt)}` : '', rv ? `${rv.score}<small>/${rv.maxScore}</small>` : '')}
+        ${box('التفكير الإبداعي اللفظي', v, v ? `نموذج ${v.form} — ${fmtDate(v.submittedAt)}` : '', v ? `${v._index}<small> مؤشر</small>` : '')}
+        ${box('التفكير الإبداعي الشكلي', f, f ? `نموذج ${f.form} — ${fmtDate(f.submittedAt)}` : '', f ? `${f._index}<small> مؤشر</small>` : '')}
+      </div>
+      <h4>مقارنة المحكات (الرتبة المئينية بين أقرانه)</h4>${unifiedChart(p)}
+      <p class="sm muted">العمود: مئيني الطالب في كل محك. الخط الأحمر المتقطع: حد الترشيح. المنطقة الصفراء: منطقة الترشيح.</p>
+      <div class="grid2 un-dims">
+        ${v ? `<div><h4>أبعاد الإبداع اللفظي</h4><table class="tbl sm-t"><thead><tr><th>البُعد</th><th>الخام</th><th>المعيارية</th><th>المئيني</th></tr></thead><tbody>${dims(v, 'verbal')}</tbody></table></div>` : ''}
+        ${f ? `<div><h4>أبعاد الإبداع الشكلي</h4><table class="tbl sm-t"><thead><tr><th>البُعد</th><th>الخام</th><th>المعيارية</th><th>المئيني</th></tr></thead><tbody>${dims(f, 'figural')}<tr><td>نقاط القوة الإبداعية</td><td colspan="3">${f.bonus || 0}</td></tr></tbody></table></div>` : ''}
+        ${rv ? `<div><h4>القدرة العقلية</h4><table class="tbl sm-t"><tbody><tr><td>الدرجة الخام</td><td><b>${rv.score}</b> من ${rv.maxScore}</td></tr><tr><td>الدرجة المعيارية المحلية</td><td><b>${rv._ss}</b></td></tr><tr><td>اتساق نمط الإجابة</td><td>${rv._consistent ? '<span class="ok">متسق</span>' : '<span class="bad">يحتاج مراجعة</span>'}</td></tr></tbody></table></div>` : ''}
+      </div>
+      <h4>التفسير</h4><p>${unifiedText(p)}</p>
+      ${flags.length ? `<h4>ملاحظات على صدق النتائج</h4><ul class="flags">${flags.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+      <p class="disc">المعايير محلية مستخرجة من طلاب المدرسة وليست معايير رسمية، والدرجات ليست نسبة ذكاء. هذا التقرير يجمع محكين من محكات الكشف عن الموهبة، ويُستكمل القرار بمقياس موهبة للقدرات العقلية المتعددة وترشيحات المعلمين والتحصيل الدراسي.</p>
+      <div class="sign"><div>منسق الموهبة: ..................</div><div>التوقيع: ..................</div><div>التاريخ: ..................</div></div>
+      <p class="un-foot">إعداد و تصميم: مصطفى حسين</p></div>`;
+  }
+  function openUnified(p) {
+    const m = modal(`${unifiedHtml(p)}<div class="row end noprint">${p.rv ? `<button class="btn ghost" data-u="rv">تقرير المصفوفات</button>` : ''}${p.verbal ? '<button class="btn ghost" data-u="verbal">تقرير الإبداع اللفظي</button>' : ''}${p.figural ? '<button class="btn ghost" data-u="figural">تقرير الإبداع الشكلي</button>' : ''}<button class="btn" onclick="window.print()">طباعة التقرير الموحّد</button></div>`, { wide: true, cls: 'rep-modal' });
+    m.el.addEventListener('click', e => {
+      const b = e.target.closest('[data-u]'); if (!b) return; const k = b.dataset.u; m.close();
+      if (k === 'rv') { S._rows = [p.rv]; ACT.report({ dataset: { id: p.rv.resultId } }); }
+      else { S._ttRows = [p[k]]; ACT.ttReport({ dataset: { id: p[k].resultId } }); }
+    });
+  }
+  ACT.ttUnified = (b) => { const p = (S._ttPeople || []).find(x => String(x.studentId) === String(b.dataset.sid)); if (p) openUnified(p); else toast('لا توجد نتائج مصححة لهذا الطالب في هذه المرحلة', 'err'); };
+  ACT.ttUnifiedPrintAll = () => {
+    const list = (S._ttPeople || []).filter(p => p.rec[0]);
+    if (!list.length) { toast('لا يوجد مرشحون أو حالات حدّية', 'err'); return; }
+    modal(`<div class="un-all">${list.map(unifiedHtml).join('<div class="pg-break"></div>')}</div><div class="row end noprint"><button class="btn" onclick="window.print()">طباعة (${list.length} تقريراً)</button></div>`, { wide: true, cls: 'rep-modal' });
+    setTimeout(() => window.print(), 400);
+  };
+  // فتح التقرير الموحّد من تقرير أي اختبار
+  async function unifiedFor(studentId, stage) {
+    if (!S.results) await A.getResults(true);
+    if (!S.tt) await loadTT();
+    const pp = buildPeople(stage).people; S._ttPeople = pp;
+    const p = pp.find(x => String(x.studentId) === String(studentId));
+    if (p) openUnified(p); else toast('لا توجد نتائج مصححة لهذا الطالب', 'err');
+  }
+
+  /* ---------------- الترشيح والملف الموحّد ---------------- */
   PAGES.ttNominations = async () => {
     await loadTT(); await A.getResults(true);
     const stageF = { v: TF.stage || 'primary' };
     const draw = () => {
       const st = stageF.v, gp = Number(S.meta.settings.ttGiftedPct || 90);
-      const tt = enriched().filter(r => r.stage === st && r.status === 'valid'); S._ttAll = tt;
-      const rv = AN.enrich((S.results || []).map(x => Object.assign({}, x)), S.meta.settings, 'grade').filter(r => r.stage === st && r.status === 'valid');
-      const P = {};
-      const add = (r, k) => { const p = P[r.studentId] = P[r.studentId] || { studentId: r.studentId, name: r.name, className: r.className, grade: r.grade, gender: r.gender }; const prev = p[k]; if (!prev || r.submittedAt > prev.submittedAt) p[k] = r; };
-      rv.forEach(r => add(r, 'rv')); tt.forEach(r => add(r, r.battery));
-      const people = Object.values(P).map(p => {
-        const n = ['rv', 'verbal', 'figural'].filter(k => p[k] && p[k]._nominated); p.noms = n.length; p.max = Math.max(...['rv', 'verbal', 'figural'].map(k => p[k] ? p[k]._pct || 0 : 0));
-        const ab = !!(p.rv && p.rv._nominated), cr = !!((p.verbal && p.verbal._nominated) || (p.figural && p.figural._nominated));
-        p.rec = ab && cr ? ['★★ مرشح: قدرة عقلية + تفكير إبداعي', 'gold'] : ab ? ['★ مرشح: قدرة عقلية', 'gold'] : cr ? ['★ مرشح: تفكير إبداعي', 'gold'] : ['rv', 'verbal', 'figural'].some(k => p[k] && p[k]._borderline) ? ['حدّي في أحد المحكات', 'lv2'] : ['', ''];
-        return p;
-      }).sort((a, b) => b.noms - a.noms || b.max - a.max);
-      S._ttPeople = people;
+      const { tt, people } = buildPeople(st); S._ttAll = tt; S._ttPeople = people;
       const cell = x => x ? `${x._pct != null ? x._pct : '—'} ${x._nominated ? '<span class="badge gold">★</span>' : x._borderline ? '<span class="badge lv2">حدّي</span>' : ''}` : '<span class="muted">—</span>';
       const sec = (title, list) => `<div class="card"><h3>${title} <span class="badge gold">${list.length}</span></h3>${list.length ? `<div class="tbl-wrap"><table class="tbl click"><thead><tr><th>الطالب</th><th>الفصل</th><th>المؤشر</th><th>المئيني</th><th>المستوى</th><th>ملاحظات</th></tr></thead><tbody>${list.sort((a, b) => b._pct - a._pct).map(r => `<tr data-act="ttReport" data-id="${r.resultId}"><td>${esc(r.name)}</td><td>${esc(r.className)}</td><td><b>${r._index}</b></td><td>${r._pct}</td><td>${lvl(r)}</td><td class="sm">${esc((r._flags || []).join(' – '))}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">لا يوجد.</p>'}</div>`;
-      setPage(`<div class="row between"><h1 class="ph">الترشيح والملف الموحّد</h1><div><button class="btn ghost" data-act="ttExportPeople">تصدير الملف الموحّد</button> <button class="btn ghost" data-act="printPage">طباعة</button></div></div>
-        <div class="filters"><label>المرحلة<select id="nSt">${['primary', 'intermediate', 'secondary'].map(s => `<option value="${s}" ${s === st ? 'selected' : ''}>${STAGE_NAME[s]}</option>`).join('')}</select></label></div>
-        <div class="card guide"><p>يجمع الملف الموحّد محكّين من محكات الكشف: <b>القدرة العقلية</b> (اختبار المصفوفات) و<b>التفكير الإبداعي</b> (الصورتان اللفظية والشكلية). يُرشَّح الطالب في محك الإبداع إذا كان مؤشره الإبداعي في المئيني ${gp} فأكثر. يمكن تعديل الحدّين من «الإعدادات».</p></div>
-        <div class="card"><h3>الملف الموحّد للطلاب (${people.length})</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>الطالب</th><th>الفصل</th><th>المصفوفات (مئيني)</th><th>الإبداع اللفظي (مئيني)</th><th>الإبداع الشكلي (مئيني)</th><th>التوصية</th></tr></thead><tbody>
-        ${people.filter(p => p.rec[0]).map(p => `<tr><td>${esc(p.name)}<br><small class="muted" dir="ltr">${esc(p.studentId)}</small></td><td>${esc(p.className)}</td><td>${cell(p.rv)}</td><td>${cell(p.verbal)}</td><td>${cell(p.figural)}</td><td>${p.rec[0] ? `<span class="badge ${p.rec[1]}">${p.rec[0]}</span>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">لا يوجد مرشحون أو حالات حدّية في هذه المرحلة.</td></tr>'}
-        </tbody></table></div><p class="sm muted">يظهر هنا المرشحون والحالات الحدّية فقط؛ الملف المصدَّر يشمل كل الطلاب.</p></div>
+      setPage(`<div class="row between"><h1 class="ph">الترشيح والملف الموحّد</h1><div><button class="btn" data-act="ttUnifiedPrintAll">طباعة التقارير الموحّدة للمرشحين</button> <button class="btn ghost" data-act="ttExportPeople">تصدير الملف الموحّد</button></div></div>
+        <div class="filters"><label>المرحلة<select id="nSt">${['primary', 'intermediate', 'secondary'].map(s => `<option value="${s}" ${s === st ? 'selected' : ''}>${STAGE_NAME[s]}</option>`).join('')}</select></label>
+        <label class="grow">التقرير الموحّد لأي طالب<input id="nQ" list="nQl" placeholder="اكتب اسم الطالب أو رقمه ثم اختره"><datalist id="nQl">${people.map(p => `<option value="${esc(p.name)} — ${esc(p.studentId)}"></option>`).join('')}</datalist></label></div>
+        <div class="card guide"><p>يجمع الملف الموحّد محكّين من محكات الكشف: <b>القدرة العقلية</b> (اختبار المصفوفات) و<b>التفكير الإبداعي</b> (الصورتان اللفظية والشكلية). يُرشَّح الطالب في محك الإبداع إذا كان مؤشره الإبداعي في المئيني ${gp} فأكثر. يمكن تعديل الحدّين من «الإعدادات». <b>اضغط على أي طالب لعرض تقريره الموحّد وطباعته.</b></p></div>
+        <div class="card"><h3>الملف الموحّد للطلاب (${people.length})</h3><div class="tbl-wrap"><table class="tbl click"><thead><tr><th>الطالب</th><th>الفصل</th><th>المصفوفات (مئيني)</th><th>الإبداع اللفظي (مئيني)</th><th>الإبداع الشكلي (مئيني)</th><th>التوصية</th></tr></thead><tbody>
+        ${people.filter(p => p.rec[0]).map(p => `<tr data-act="ttUnified" data-sid="${esc(p.studentId)}"><td>${esc(p.name)}<br><small class="muted" dir="ltr">${esc(p.studentId)}</small></td><td>${esc(p.className)}</td><td>${cell(p.rv)}</td><td>${cell(p.verbal)}</td><td>${cell(p.figural)}</td><td>${p.rec[0] ? `<span class="badge ${p.rec[1]}">${p.rec[0]}</span>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">لا يوجد مرشحون أو حالات حدّية في هذه المرحلة.</td></tr>'}
+        </tbody></table></div><p class="sm muted">يظهر هنا المرشحون والحالات الحدّية فقط؛ لعرض تقرير أي طالب آخر استخدم مربع البحث بالأعلى، والملف المصدَّر يشمل كل الطلاب.</p></div>
         ${sec('مرشحو التفكير الإبداعي – الصورة الشكلية', tt.filter(r => r.battery === 'figural' && r._nominated))}
         ${sec('مرشحو التفكير الإبداعي – الصورة اللفظية', tt.filter(r => r.battery === 'verbal' && r._nominated))}
         ${sec('حالات حدّية في التفكير الإبداعي', tt.filter(r => r._borderline))}`);
       $('#nSt').onchange = e => { stageF.v = e.target.value; TF.stage = e.target.value; draw(); };
+      $('#nQ').onchange = e => { const id = (e.target.value.split('—').pop() || '').trim(); const p = people.find(x => String(x.studentId) === id || x.name === e.target.value.trim()); if (p) openUnified(p); else toast('اختر الطالب من القائمة', 'err'); };
     };
     draw();
   };
@@ -789,5 +880,5 @@ window.TTUI = function (A) {
     H('ttRecalc', { token: tok });
   }
 
-  return { active: () => !!ST, render: renderStu, start, restore, homeHtml, settingsHtml, bindSettings, monitorBar, seed };
+  return { unifiedFor, active: () => !!ST, render: renderStu, start, restore, homeHtml, settingsHtml, bindSettings, monitorBar, seed };
 };

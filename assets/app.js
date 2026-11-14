@@ -617,8 +617,9 @@
       ${body}
       <p class="disc">الاختبار مكافئ مبني على نمط مصفوفات رافن المتتابعة، وبنوده أصلية. المعايير محلية مستخرجة من طلاب المدرسة وليست معايير رسمية، ولا تُعد الدرجة نسبة ذكاء. نتيجة هذا الاختبار محك واحد ضمن محكات الكشف عن الموهبة ولا يُتخذ القرار بناءً عليه وحده.</p>
       <div class="sign"><div>منسق الموهبة: ..................</div><div>التوقيع: ..................</div><div>التاريخ: ..................</div></div></div>
-      <div class="row end noprint">${isAll() ? (r.status === 'void' ? `<button class="btn ghost" data-act="voidRes" data-id="${r.resultId}" data-st="valid">استعادة النتيجة</button>` : `<button class="btn ghost danger-t" data-act="voidRes" data-id="${r.resultId}" data-st="void">إلغاء النتيجة</button>`) : ''}<button class="btn" onclick="window.print()">طباعة التقرير</button></div>`;
+      <div class="row end noprint">${isAll() && TT ? '<button class="btn ghost" data-unified="1">التقرير الموحّد</button>' : ''}${isAll() ? (r.status === 'void' ? `<button class="btn ghost" data-act="voidRes" data-id="${r.resultId}" data-st="valid">استعادة النتيجة</button>` : `<button class="btn ghost danger-t" data-act="voidRes" data-id="${r.resultId}" data-st="void">إلغاء النتيجة</button>`) : ''}<button class="btn" onclick="window.print()">طباعة التقرير</button></div>`;
     const m = modal(html, { wide: true, cls: 'rep-modal' });
+    m.el.addEventListener('click', e => { if (e.target.closest('[data-unified]') && TT) { m.close(); TT.unifiedFor(r.studentId, r.stage); } });
     m.el.addEventListener('click', async e => { const b = e.target.closest('[data-act="voidRes"]'); if (!b) return; if (!(await confirmBox(b.dataset.st === 'void' ? 'إلغاء النتيجة يستبعدها من التحليل والترشيح، ويسمح للطالب بإعادة الاختبار. متابعة؟' : 'استعادة النتيجة؟', 'تنفيذ', b.dataset.st === 'void'))) return; try { await api('setResultStatus', { resultId: b.dataset.id, status: b.dataset.st }); m.close(); toast('تم'); render(); } catch (er) { toast(er.message, 'err'); } });
   };
 
