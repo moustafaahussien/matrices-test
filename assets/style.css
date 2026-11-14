@@ -233,3 +233,6 @@ body:has(.login-wrap){background:#0d2f39}body:has(.login-wrap) .site-foot{color:
 .un-foot{text-align:center;font-size:10px;color:#8a96a3;margin-top:10px}
 @media (max-width:900px){.un-grid{grid-template-columns:1fr}}
 @media print{.pg-break{break-after:page}.un-box,.un-dims>div{break-inside:avoid}}
+.un-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
+.un-item{display:flex;flex-direction:column;gap:3px;align-items:flex-start;text-align:right;background:#f8fafb;border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;font:inherit;color:inherit}
+.un-item:hover{border-color:#8ac3d1;background:#eef7f9}.un-item small{color:var(--mut)}.un-item span{font-size:12px}.un-item i{color:#a3adb5;font-style:normal}

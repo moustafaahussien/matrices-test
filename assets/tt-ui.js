@@ -461,7 +461,7 @@ window.TTUI = function (A) {
       <h4>الإجابات وتصحيحها</h4><div class="tt-resps">${respHtml(r, bat, D)}</div>
       <p class="disc">اختبار مبني على نمط اختبارات تورانس للتفكير الإبداعي، ومثيراته أصلية. الأصالة محسوبة من ندرة الفكرة بين طلاب المدرسة، والمعايير محلية وليست معايير رسمية. نتيجة هذا الاختبار محك واحد ضمن محكات الكشف عن الموهبة.</p>
       <div class="sign"><div>منسق الموهبة: ..................</div><div>التوقيع: ..................</div><div>التاريخ: ..................</div></div></div>
-      <div class="row end noprint">${isAll() ? `<button class="btn ghost" data-r="unified">التقرير الموحّد</button><button class="btn ghost" data-r="review">مراجعة التصحيح وتعديله</button>${S.meta.tt && S.meta.tt.ai ? '<button class="btn ghost" data-r="rescore">إعادة التصحيح بالذكاء الاصطناعي</button>' : ''}${r.status === 'void' ? '<button class="btn ghost" data-r="valid">استعادة النتيجة</button>' : '<button class="btn ghost danger-t" data-r="void">إلغاء النتيجة</button>'}` : ''}<button class="btn" onclick="window.print()">طباعة التقرير</button></div>`;
+      <div class="row end noprint">${isAll() ? `<button class="btn ghost" data-r="unified">التقرير الكامل للطالب</button><button class="btn ghost" data-r="review">مراجعة التصحيح وتعديله</button>${S.meta.tt && S.meta.tt.ai ? '<button class="btn ghost" data-r="rescore">إعادة التصحيح بالذكاء الاصطناعي</button>' : ''}${r.status === 'void' ? '<button class="btn ghost" data-r="valid">استعادة النتيجة</button>' : '<button class="btn ghost danger-t" data-r="void">إلغاء النتيجة</button>'}` : ''}<button class="btn" onclick="window.print()">طباعة التقرير</button></div>`;
     const m = modal(html, { wide: true, cls: 'rep-modal' });
     m.el.addEventListener('click', async e => {
       const li = e.target.closest('[data-loadimg]');
@@ -517,7 +517,7 @@ window.TTUI = function (A) {
     return { tt, rv, people };
   }
 
-  /* ---------------- التقرير الموحّد للطالب ---------------- */
+  /* ---------------- التقرير الكامل للطالب (المقياسان) ---------------- */
   const STAGE_TEST = { primary: 'المصفوفات الملونة', intermediate: 'المصفوفات القياسية', secondary: 'المصفوفات المتقدمة' };
   function unifiedChart(p) {
     const gp = Number(S.meta.settings.giftedPct || 90), tgp = Number(S.meta.settings.ttGiftedPct || 90);
@@ -553,7 +553,7 @@ window.TTUI = function (A) {
     const box = (title, r, sub, big) => `<div class="un-box ${r && r._nominated ? 'nom' : ''}"><h4>${title}</h4>${r ? `<div class="un-big">${big}</div><div class="un-sub">المئيني <b>${r._pct}</b> — ${r._level ? `<span class="badge ${r._level.cls}">${r._level.code}</span> ${esc(r._level.label)}` : ''}</div><div class="un-meta">${sub}</div>${r._nominated ? '<div class="badge gold">★ مرشح</div>' : r._borderline ? '<div class="badge lv2">حدّي</div>' : ''}` : '<div class="un-none">لم يُختبر بعد</div>'}</div>`;
     const dims = (r, bat) => r ? TA.ALL_DIMS[bat].filter(d => !(bat === 'figural' && d === 'flexibility')).map(d => `<tr><td>${DIMN[d]}</td><td>${r[d]}</td><td><b>${r._ss ? r._ss[d] : '—'}</b></td><td>${r._pctD ? r._pctD[d] : '—'}</td></tr>`).join('') : '';
     const flags = [].concat(rv && rv._flags && !rv._consistent ? ['المصفوفات: ' + rv._flags.join(' – ')] : [], v && v._flags ? v._flags.map(x => 'اللفظي: ' + x) : [], f && f._flags ? f._flags.map(x => 'الشكلي: ' + x) : []);
-    return `<div class="report unified"><div class="rep-head"><div class="logo sm">${logoSvg()}</div><div><h2>التقرير الموحّد للكشف عن الموهبة</h2><p>${esc(sch)} — برنامج الكشف عن الموهوبين</p></div></div>
+    return `<div class="report unified"><div class="rep-head"><div class="logo sm">${logoSvg()}</div><div><h2>التقرير الكامل للكشف عن الموهبة</h2><p>${esc(sch)} — برنامج الكشف عن الموهوبين</p></div></div>
       <table class="info"><tr><th>الطالب</th><td>${esc(p.name)}</td><th>رقم الطالب</th><td dir="ltr">${esc(p.studentId)}</td></tr><tr><th>الصف / الفصل</th><td>${esc(p.grade)} — ${esc(p.className)}</td><th>العمر</th><td>${p.ageMonths ? Math.floor(p.ageMonths / 12) + ' سنة و' + (p.ageMonths % 12) + ' شهر' : '—'}</td></tr><tr><th>المرحلة</th><td>${STAGE_NAME[p.stage]}</td><th>تاريخ التقرير</th><td>${fmtDate(Date.now())}</td></tr></table>
       <div class="un-rec ${p.rec[1] || ''}"><b>التوصية:</b> ${p.rec[0] || 'لا يُرشَّح في هذه الدورة'}</div>
       <div class="un-grid">
@@ -575,7 +575,7 @@ window.TTUI = function (A) {
       <p class="un-foot">إعداد و تصميم: مصطفى حسين</p></div>`;
   }
   function openUnified(p) {
-    const m = modal(`${unifiedHtml(p)}<div class="row end noprint">${p.rv ? `<button class="btn ghost" data-u="rv">تقرير المصفوفات</button>` : ''}${p.verbal ? '<button class="btn ghost" data-u="verbal">تقرير الإبداع اللفظي</button>' : ''}${p.figural ? '<button class="btn ghost" data-u="figural">تقرير الإبداع الشكلي</button>' : ''}<button class="btn" onclick="window.print()">طباعة التقرير الموحّد</button></div>`, { wide: true, cls: 'rep-modal' });
+    const m = modal(`${unifiedHtml(p)}<div class="row end noprint">${p.rv ? `<button class="btn ghost" data-u="rv">تقرير المصفوفات</button>` : ''}${p.verbal ? '<button class="btn ghost" data-u="verbal">تقرير الإبداع اللفظي</button>' : ''}${p.figural ? '<button class="btn ghost" data-u="figural">تقرير الإبداع الشكلي</button>' : ''}<button class="btn" onclick="window.print()">طباعة التقرير الكامل</button></div>`, { wide: true, cls: 'rep-modal' });
     m.el.addEventListener('click', e => {
       const b = e.target.closest('[data-u]'); if (!b) return; const k = b.dataset.u; m.close();
       if (k === 'rv') { S._rows = [p.rv]; ACT.report({ dataset: { id: p.rv.resultId } }); }
@@ -598,29 +598,98 @@ window.TTUI = function (A) {
     if (p) openUnified(p); else toast('لا توجد نتائج مصححة لهذا الطالب', 'err');
   }
 
-  /* ---------------- الملف الموحّد والترشيح ---------------- */
-  PAGES.ttNominations = async () => {
-    await loadTT(); await A.getResults(true);
-    const stageF = { v: TF.stage || 'primary' };
+  const stageSel = (st, id) => `<label>المرحلة<select id="${id || 'nSt'}">${['primary', 'intermediate', 'secondary'].map(x => `<option value="${x}" ${x === st ? 'selected' : ''}>${STAGE_NAME[x]}</option>`).join('')}</select></label>`;
+  const critCell = x => x ? `${x._pct != null ? x._pct : '—'} ${x._nominated ? '<span class="badge gold">★</span>' : x._borderline ? '<span class="badge lv2">حدّي</span>' : ''}` : '<span class="muted">—</span>';
+  async function loadBoth() { await loadTT(); await A.getResults(true); if (!TF.stage) TF.stage = 'primary'; }
+
+  /* ---------------- ترشيح التفكير الإبداعي (المقياس الثاني وحده) ---------------- */
+  PAGES.ttNomTT = async () => {
+    TF.q = ''; TF.status = ''; TF.code = '';
+    await loadTT();
     const draw = () => {
-      const st = stageF.v, gp = Number(S.meta.settings.ttGiftedPct || 90);
-      const { tt, people } = buildPeople(st); S._ttAll = tt; S._ttPeople = people;
-      const cell = x => x ? `${x._pct != null ? x._pct : '—'} ${x._nominated ? '<span class="badge gold">★</span>' : x._borderline ? '<span class="badge lv2">حدّي</span>' : ''}` : '<span class="muted">—</span>';
-      const sec = (title, list) => `<div class="card"><h3>${title} <span class="badge gold">${list.length}</span></h3>${list.length ? `<div class="tbl-wrap"><table class="tbl click"><thead><tr><th>الطالب</th><th>الفصل</th><th>المؤشر</th><th>المئيني</th><th>المستوى</th><th>ملاحظات</th></tr></thead><tbody>${list.sort((a, b) => b._pct - a._pct).map(r => `<tr data-act="ttReport" data-id="${r.resultId}"><td>${esc(r.name)}</td><td>${esc(r.className)}</td><td><b>${r._index}</b></td><td>${r._pct}</td><td>${lvl(r)}</td><td class="sm">${esc((r._flags || []).join(' – '))}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">لا يوجد.</p>'}</div>`;
-      setPage(`<div class="row between"><h1 class="ph">الملف الموحّد والترشيح</h1><div><button class="btn" data-act="ttUnifiedPrintAll">طباعة التقارير الموحّدة للمرشحين</button> <button class="btn ghost" data-act="ttExportPeople">تصدير الملف الموحّد</button></div></div>
-        <div class="filters"><label>المرحلة<select id="nSt">${['primary', 'intermediate', 'secondary'].map(s => `<option value="${s}" ${s === st ? 'selected' : ''}>${STAGE_NAME[s]}</option>`).join('')}</select></label>
-        <label class="grow">التقرير الموحّد لأي طالب<input id="nQ" list="nQl" placeholder="اكتب اسم الطالب أو رقمه ثم اختره"><datalist id="nQl">${people.map(p => `<option value="${esc(p.name)} — ${esc(p.studentId)}"></option>`).join('')}</datalist></label></div>
-        <div class="card guide"><p>يجمع الملف الموحّد محكّين من محكات الكشف: <b>القدرة العقلية</b> (اختبار المصفوفات) و<b>التفكير الإبداعي</b> (الصورتان اللفظية والشكلية). يُرشَّح الطالب في محك الإبداع إذا كان مؤشره الإبداعي في المئيني ${gp} فأكثر. يمكن تعديل الحدّين من «الإعدادات». <b>اضغط على أي طالب لعرض تقريره الموحّد وطباعته.</b></p></div>
-        <div class="card"><h3>الملف الموحّد للطلاب (${people.length})</h3><div class="tbl-wrap"><table class="tbl click"><thead><tr><th>الطالب</th><th>الفصل</th><th>المصفوفات (مئيني)</th><th>الإبداع اللفظي (مئيني)</th><th>الإبداع الشكلي (مئيني)</th><th>التوصية</th></tr></thead><tbody>
-        ${people.filter(p => p.rec[0]).map(p => `<tr data-act="ttUnified" data-sid="${esc(p.studentId)}"><td>${esc(p.name)}<br><small class="muted" dir="ltr">${esc(p.studentId)}</small></td><td>${esc(p.className)}</td><td>${cell(p.rv)}</td><td>${cell(p.verbal)}</td><td>${cell(p.figural)}</td><td>${p.rec[0] ? `<span class="badge ${p.rec[1]}">${p.rec[0]}</span>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">لا يوجد مرشحون أو حالات حدّية في هذه المرحلة.</td></tr>'}
-        </tbody></table></div><p class="sm muted">يظهر هنا المرشحون والحالات الحدّية فقط؛ لعرض تقرير أي طالب آخر استخدم مربع البحث بالأعلى، والملف المصدَّر يشمل كل الطلاب.</p></div>
-        ${sec('مرشحو التفكير الإبداعي – الصورة الشكلية', tt.filter(r => r.battery === 'figural' && r._nominated))}
-        ${sec('مرشحو التفكير الإبداعي – الصورة اللفظية', tt.filter(r => r.battery === 'verbal' && r._nominated))}
-        ${sec('حالات حدّية في التفكير الإبداعي', tt.filter(r => r._borderline))}`);
-      $('#nSt').onchange = e => { stageF.v = e.target.value; TF.stage = e.target.value; draw(); };
-      $('#nQ').onchange = e => { const id = (e.target.value.split('—').pop() || '').trim(); const p = people.find(x => String(x.studentId) === id || x.name === e.target.value.trim()); if (p) openUnified(p); else toast('اختر الطالب من القائمة', 'err'); };
+      ensureTF();
+      const rows = applyTF(enriched()).filter(r => r.status === 'valid'); S._ttRows = rows;
+      const gp = Number(S.meta.settings.ttGiftedPct || 90);
+      const sec = (title, list, note, cls) => `<div class="card"><h3>${title} <span class="badge ${cls}">${list.length}</span></h3><p class="sm muted">${note}</p>${list.length ? `<div class="tbl-wrap"><table class="tbl click"><thead><tr><th>الطالب</th><th>الفصل</th><th>المؤشر الإبداعي</th><th>المئيني</th><th>المستوى</th><th>ملاحظات</th></tr></thead><tbody>${list.sort((x, y) => y._pct - x._pct).map(r => `<tr data-act="ttReport" data-id="${r.resultId}"><td>${esc(r.name)}<br><small class="muted" dir="ltr">${esc(r.studentId)}</small></td><td>${esc(r.className)}</td><td><b>${r._index}</b></td><td>${r._pct}</td><td>${lvl(r)}</td><td class="sm">${esc((r._flags || []).join(' – '))}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">لا يوجد.</p>'}</div>`;
+      setPage(`<div class="row between"><h1 class="ph">ترشيح التفكير الإبداعي</h1><div><button class="btn ghost" data-act="ttExport">تصدير</button> <button class="btn ghost" data-act="printPage">طباعة</button></div></div>${ttFilterBar({})}
+        <div class="card guide"><p>هذه الصفحة خاصة بمقياس <b>التفكير الإبداعي</b> وحده. معيار الترشيح: <b>المؤشر الإبداعي في المئيني ${gp} فأكثر</b> داخل مجموعة المقارنة، مع عدد كافٍ من الأفكار (5 فأكثر في اللفظي، و3 رسوم فأكثر في الشكلي). يمكن تعديل الحد من «الإعدادات». للترشيح الذي يجمع المقياسين انتقل إلى قسم «الترشيح العام».</p></div>
+        ${sec('المرشحون', rows.filter(r => r._nominated), 'يُحالون إلى «الترشيح العام» لدمج نتيجتهم مع اختبار المصفوفات.', 'gold')}
+        ${sec('حالات حدّية', rows.filter(r => r._borderline), `المئيني بين ${gp - 5} و${gp - 1}؛ تُدرس مع المحكات الأخرى.`, 'lv2')}
+        ${sec('درجات مرتفعة تحتاج مراجعة', rows.filter(r => r._reviewHigh), 'المئيني مرتفع لكن عدد الأفكار أو الرسوم قليل جداً؛ يُتحقق منها (مراجعة التصحيح أو إعادة الاختبار).', 'warnb')}`);
+      bindTF(draw);
     };
     draw();
+  };
+
+  /* ---------------- الترشيح العام (المقياسان معاً) ---------------- */
+  PAGES.ttFinal = async () => {
+    await loadBoth();
+    const draw = () => {
+      const st = TF.stage, { people } = buildPeople(st); S._ttPeople = people;
+      const grp = (title, list, note, cls) => `<div class="card"><h3>${title} <span class="badge ${cls}">${list.length}</span></h3><p class="sm muted">${note}</p>${list.length ? `<div class="tbl-wrap"><table class="tbl click"><thead><tr><th>الطالب</th><th>الفصل</th><th>المصفوفات</th><th>الإبداع اللفظي</th><th>الإبداع الشكلي</th></tr></thead><tbody>${list.map(p => `<tr data-act="ttUnified" data-sid="${esc(p.studentId)}"><td>${esc(p.name)}<br><small class="muted" dir="ltr">${esc(p.studentId)}</small></td><td>${esc(p.className)}</td><td>${critCell(p.rv)}</td><td>${critCell(p.verbal)}</td><td>${critCell(p.figural)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">لا يوجد.</p>'}</div>`;
+      const both = people.filter(p => p.ab && p.cr), ab = people.filter(p => p.ab && !p.cr), cr = people.filter(p => p.cr && !p.ab), bl = people.filter(p => !p.ab && !p.cr && p.rec[0]);
+      setPage(`<div class="row between"><h1 class="ph">الترشيح العام</h1><div><button class="btn" data-act="ttUnifiedPrintAll">طباعة التقارير الكاملة للمرشحين</button> <button class="btn ghost" data-act="ttExportPeople">تصدير</button></div></div>
+        <div class="filters">${stageSel(st)}</div>
+        <div class="card guide"><p>يجمع الترشيح العام نتيجة الطالب في <b>المقياسين</b>: القدرة العقلية (المصفوفات) والتفكير الإبداعي (اللفظي والشكلي). يُرشَّح الطالب إذا كان مرشحاً في أي منهما، وتُرتَّب الفئات من الأقوى. الأرقام هي المئيني في كل محك. اضغط على أي طالب لعرض تقريره الكامل.</p></div>
+        <div class="cards"><div class="stat gold"><b>${both.length}</b><span>قدرة + إبداع</span></div><div class="stat gold"><b>${ab.length}</b><span>قدرة عقلية</span></div><div class="stat gold"><b>${cr.length}</b><span>تفكير إبداعي</span></div><div class="stat"><b>${bl.length}</b><span>حالات حدّية</span></div><div class="stat blue"><b>${people.length}</b><span>طالب لهم نتائج</span></div></div>
+        ${grp('★★ مرشحون في المقياسين: قدرة عقلية + تفكير إبداعي', both, 'أقوى أنماط الموهبة؛ أولوية في الإحالة للمرحلة التالية.', 'gold')}
+        ${grp('★ مرشحون في القدرة العقلية', ab, 'متفوقون في الاستدلال المجرد؛ يُستحسن تنمية التفكير الإبداعي لديهم.', 'gold')}
+        ${grp('★ مرشحون في التفكير الإبداعي', cr, 'مبدعون قد لا يظهر تفوقهم في الاختبارات التقليدية؛ يُدعَم ترشيحهم بآراء المعلمين وملف الأعمال.', 'gold')}
+        ${grp('حالات حدّية', bl, 'قريبون من حد الترشيح في محك واحد على الأقل؛ تُدرس مع المحكات الأخرى.', 'lv2')}`);
+      $('#nSt').onchange = e => { TF.stage = e.target.value; draw(); };
+    };
+    draw();
+  };
+
+  /* ---------------- الملف الموحّد لكل الطلاب ---------------- */
+  PAGES.ttProfile = async () => {
+    await loadBoth();
+    const f = { cls: '', q: '', only: '' };
+    const draw = (keep) => {
+      const st = TF.stage, { people } = buildPeople(st); S._ttPeople = people;
+      const classes = Array.from(new Set(people.map(p => p.className))).sort((a, b) => String(a).localeCompare(String(b), 'ar', { numeric: true }));
+      const rows = people.filter(p => (!f.cls || p.className === f.cls) && (!f.q || String(p.name).includes(f.q) || String(p.studentId).includes(f.q)) && (!f.only || (f.only === 'nom' ? p.rec[0] : f.only === 'both' ? (p.rv && (p.verbal || p.figural)) : f.only === 'missing' ? !(p.rv && (p.verbal || p.figural)) : true)));
+      setPage(`<div class="row between"><h1 class="ph">الملف الموحّد للطلاب</h1><div><button class="btn ghost" data-act="ttExportPeople">تصدير Excel (CSV)</button> <button class="btn ghost" data-act="printPage">طباعة</button></div></div>
+        <div class="filters">${stageSel(st)}<label>الفصل<select id="pCls"><option value="">الكل</option>${classes.map(c => `<option ${c === f.cls ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+        <label>عرض<select id="pOnly"><option value="">كل الطلاب</option><option value="nom" ${f.only === 'nom' ? 'selected' : ''}>المرشحون والحالات الحدّية</option><option value="both" ${f.only === 'both' ? 'selected' : ''}>من أدّى المقياسين</option><option value="missing" ${f.only === 'missing' ? 'selected' : ''}>من ينقصه أحد المقياسين</option></select></label>
+        <label class="grow">بحث<input id="pQ" value="${esc(f.q)}" placeholder="اسم أو رقم الطالب"></label></div>
+        <div class="card"><p class="muted">${rows.length} طالباً — صف لكل طالب يجمع نتائجه في المحكات الثلاثة (الرقم = المئيني بين أقرانه). اضغط على أي طالب لعرض تقريره الكامل.</p>
+        <div class="tbl-wrap"><table class="tbl click"><thead><tr><th>الطالب</th><th>الفصل</th><th>المصفوفات</th><th>الإبداع اللفظي</th><th>الإبداع الشكلي</th><th>التوصية</th></tr></thead><tbody>
+        ${rows.map(p => `<tr data-act="ttUnified" data-sid="${esc(p.studentId)}"><td>${esc(p.name)}<br><small class="muted" dir="ltr">${esc(p.studentId)}</small></td><td>${esc(p.className)}</td><td>${critCell(p.rv)}</td><td>${critCell(p.verbal)}</td><td>${critCell(p.figural)}</td><td>${p.rec[0] ? `<span class="badge ${p.rec[1]}">${p.rec[0]}</span>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">لا يوجد طلاب بهذا الاختيار.</td></tr>'}
+        </tbody></table></div><p class="sm muted">«—» تعني أن الطالب لم يؤدِّ هذا الاختبار بعد، أو أن نتيجته لم يكتمل تصحيحها.</p></div>`);
+      $('#nSt').onchange = e => { TF.stage = e.target.value; f.cls = ''; draw(); };
+      $('#pCls').onchange = e => { f.cls = e.target.value; draw(); };
+      $('#pOnly').onchange = e => { f.only = e.target.value; draw(); };
+      $('#pQ').oninput = e => { f.q = e.target.value.trim(); draw(true); };
+      if (keep) { const q = $('#pQ'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+    };
+    draw();
+  };
+
+  /* ---------------- التقرير الكامل للطالب ---------------- */
+  PAGES.ttReports = async () => {
+    await loadBoth();
+    const f = { cls: '', q: '' };
+    const draw = (keep) => {
+      const st = TF.stage, { people } = buildPeople(st); S._ttPeople = people;
+      const classes = Array.from(new Set(people.map(p => p.className))).sort((a, b) => String(a).localeCompare(String(b), 'ar', { numeric: true }));
+      const rows = people.filter(p => (!f.cls || p.className === f.cls) && (!f.q || String(p.name).includes(f.q) || String(p.studentId).includes(f.q))).sort((a, b) => String(a.name).localeCompare(String(b.name), 'ar'));
+      S._ttRepList = rows;
+      setPage(`<div class="row between"><h1 class="ph">التقرير الكامل للطالب</h1><div><button class="btn" data-act="ttPrintList" ${rows.length ? '' : 'disabled'}>طباعة تقارير القائمة المعروضة (${rows.length})</button></div></div>
+        <div class="filters">${stageSel(st)}<label>الفصل<select id="rCls"><option value="">الكل</option>${classes.map(c => `<option ${c === f.cls ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label><label class="grow">بحث<input id="rQ" value="${esc(f.q)}" placeholder="اسم أو رقم الطالب"></label></div>
+        <div class="card guide"><p>التقرير الكامل ورقة واحدة لكل طالب تجمع: نتيجته في المصفوفات والإبداع اللفظي والإبداع الشكلي، ورسماً يقارن بينها، وأبعاد الإبداع، والتوصية، وتفسيراً مكتوباً، وخانات التوقيع. يصلح لملف الترشيح أو لولي الأمر. اختر طالباً، أو صفِّ القائمة بفصل ثم اطبع تقاريره كلها دفعة واحدة.</p></div>
+        <div class="card"><div class="un-list">${rows.map(p => `<button class="un-item" data-act="ttUnified" data-sid="${esc(p.studentId)}"><b>${esc(p.name)}</b><small>${esc(p.className)} — <span dir="ltr">${esc(p.studentId)}</span></small><span>${p.rv ? 'مصفوفات ✓' : '<i>مصفوفات —</i>'} · ${p.verbal ? 'لفظي ✓' : '<i>لفظي —</i>'} · ${p.figural ? 'شكلي ✓' : '<i>شكلي —</i>'}</span>${p.rec[0] ? `<span class="badge ${p.rec[1]}">${p.rec[0]}</span>` : ''}</button>`).join('') || '<p class="muted">لا يوجد طلاب لهم نتائج مصححة بهذا الاختيار.</p>'}</div></div>`);
+      $('#nSt').onchange = e => { TF.stage = e.target.value; f.cls = ''; draw(); };
+      $('#rCls').onchange = e => { f.cls = e.target.value; draw(); };
+      $('#rQ').oninput = e => { f.q = e.target.value.trim(); draw(true); };
+      if (keep) { const q = $('#rQ'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+    };
+    draw();
+  };
+  ACT.ttPrintList = () => {
+    const list = S._ttRepList || []; if (!list.length) return;
+    modal(`<div class="un-all">${list.map(unifiedHtml).join('<div class="pg-break"></div>')}</div><div class="row end noprint"><button class="btn" onclick="window.print()">طباعة (${list.length} تقريراً)</button></div>`, { wide: true, cls: 'rep-modal' });
+    setTimeout(() => window.print(), 400);
   };
   ACT.ttExportPeople = () => {
     const out = [['رقم الطالب', 'الاسم', 'الصف', 'الفصل', 'الجنس', 'المصفوفات: الدرجة', 'المصفوفات: المئيني', 'المصفوفات: مرشح', 'اللفظي: المؤشر', 'اللفظي: المئيني', 'اللفظي: مرشح', 'الشكلي: المؤشر', 'الشكلي: المئيني', 'الشكلي: مرشح', 'التوصية']];
