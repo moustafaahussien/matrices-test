@@ -216,3 +216,9 @@ textarea.rtl{direction:rtl;font-family:inherit;font-size:14px}
   .tt-imgbox img{max-height:12cm}
   .tt-actd{break-inside:avoid}
 }
+/* ===== التذييل ===== */
+.site-foot{text-align:center;font-size:11px;color:#8a96a3;padding:8px 10px 10px}
+body:has(.login-wrap){background:#0d2f39}body:has(.login-wrap) .site-foot{color:#8fb3bd;background:#0d2f39}
+.login-wrap{min-height:calc(100vh - 30px)}
+.shell{min-height:calc(100vh - 30px)}
+@media print{.site-foot{display:block!important;font-size:9px;color:#777;padding-top:12px}}
