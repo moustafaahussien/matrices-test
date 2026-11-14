@@ -692,7 +692,7 @@
     const draw = () => {
       const classes = Array.from(new Set(list.map(s => s.className))).sort((a, b) => a.localeCompare(b, 'ar', { numeric: true }));
       const rows = list.filter(s => (!cls || s.className === cls) && (!q || s.name.includes(q) || String(s.studentId).includes(q)));
-      setPage(`<div class="row between"><h1 class="ph">الطلاب</h1>${isAll() ? '<div><button class="btn ghost" data-act="tplStudents">تحميل نموذج Excel</button> <button class="btn" data-act="importStudents">استيراد الطلاب</button></div>' : ''}</div>
+      setPage(`<div class="row between"><h1 class="ph">الطلاب</h1>${isAll() ? '<div><button class="btn ghost" data-act="tplStudents">تنزيل نموذج Excel</button> <button class="btn" data-act="importStudents">استيراد الطلاب</button></div>' : ''}</div>
         <div class="filters"><label>الفصل<select id="sCls"><option value="">الكل (${list.length})</option>${classes.map(c => `<option ${c === cls ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label><label class="grow">بحث<input id="sQ" value="${esc(q)}" placeholder="اسم أو رقم"></label></div>
         <div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>الرقم</th><th>الاسم</th><th>الجنس</th><th>الصف</th><th>الفصل</th><th>المسار</th><th>تاريخ الميلاد</th><th>المرحلة</th>${role() === 'admin' ? '<th></th>' : ''}</tr></thead><tbody>
         ${rows.slice(0, 800).map(s => `<tr class="${s.active === '0' ? 'void' : ''}"><td dir="ltr">${esc(s.studentId)}</td><td>${esc(s.name)}</td><td>${esc(s.gender)}</td><td>${esc(s.grade)}</td><td>${esc(s.className)}</td><td>${esc(s.track)}</td><td dir="ltr">${esc(s.dob)}</td><td>${STAGE_NAME[I.stageOfGrade(s.grade)]}</td>${role() === 'admin' ? `<td><button class="btn ghost sm-btn" data-act="delStudent" data-id="${esc(s.studentId)}">حذف</button></td>` : ''}</tr>`).join('')}
@@ -730,7 +730,7 @@
   }
   ACT.importStudents = () => {
     const m = modal(`<h3>استيراد الطلاب</h3>
-      <p class="muted">الأعمدة المطلوبة في الصف الأول: <b>رقم الطالب، اسم الطالب، الصف (1–12)، الفصل</b>، واختيارياً: الجنس، المسار، تاريخ الميلاد (ميلادي). حمّل «نموذج Excel» لترى الشكل الصحيح.</p>
+      <p class="muted">الأعمدة المطلوبة في الصف الأول: <b>رقم الطالب، اسم الطالب، الصف (1–12)، الفصل</b>، واختيارياً: الجنس، المسار، تاريخ الميلاد (ميلادي). نزّل «نموذج Excel» لترى الشكل الصحيح.</p>
       <div class="imp-opts"><label class="btn ghost file-btn">اختيار ملف (Excel أو CSV)<input type="file" id="impFile" accept=".csv,.txt,.xlsx,.xls" hidden></label><span class="muted">أو انسخ الخلايا من Excel والصقها هنا:</span></div>
       <textarea id="impTxt" rows="7" placeholder="الصق هنا (مع صف العناوين)"></textarea>
       <label class="chk"><input type="checkbox" id="impReplace"> استبدال القائمة الحالية بالكامل (يحذف من ليس في الملف)</label>
