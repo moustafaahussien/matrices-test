@@ -736,20 +736,24 @@
     const minN = Number(settings.minNorm || 30), giftedPct = Number(settings.giftedPct || 90);
     const valid = results.filter(r => r.status === 'valid' && r.score !== '');
     valid.forEach(r => { r._score = Number(r.score); r._parts = parts(r); });
-    const ref = REF[refType] || REF.grade;
+    const ref0 = REF[refType] || REF.grade;
+    // النموذج 5 (رافن الأصلي) صعوبته مختلفة عن النماذج 1–4، فتُحسب معاييره منفصلة
+    const F5 = r => String(r.form) === '5';
+    const ref = { key: r => ref0.key(r) + (F5(r) ? '|F5' : ''), name: r => ref0.name(r) + (F5(r) ? ' — النموذج 5' : '') };
+    const sKey = r => r.stage + (F5(r) ? '|F5' : '');
     const groups = {}, stageGroups = {};
-    valid.forEach(r => { const k = ref.key(r); (groups[k] = groups[k] || []).push(r._score); (stageGroups[r.stage] = stageGroups[r.stage] || []).push(r); });
+    valid.forEach(r => { const k = ref.key(r); (groups[k] = groups[k] || []).push(r._score); (stageGroups[sKey(r)] = stageGroups[sKey(r)] || []).push(r); });
     valid.forEach(r => {
       let arr = groups[ref.key(r)], refName = ref.name(r), small = false, fallback = false;
-      if ((arr.length < minN || (refType === 'age' && ageYears(r) == null)) && ref !== REF.stage) { arr = stageGroups[r.stage].map(x => x._score); refName = 'المرحلة كاملة'; fallback = true; }
+      if ((arr.length < minN || (refType === 'age' && ageYears(r) == null)) && ref0 !== REF.stage) { arr = stageGroups[sKey(r)].map(x => x._score); refName = 'المرحلة كاملة' + (F5(r) ? ' — النموذج 5' : ''); fallback = true; }
       if (arr.length < minN) small = true;
       r._pct = pctRank(r._score, arr); r._refN = arr.length; r._refName = refName; r._refSmall = small; r._refFallback = fallback;
       const m = mean(arr), s = sd(arr); r._z = s ? (r._score - m) / s : 0; r._ss = Math.round(100 + 15 * r._z);
       r._level = level(r._pct);
     });
     // الاتساق: مقارنة أداء الأجزاء بالمتوقع لمن لهم الدرجة الكلية نفسها تقريباً
-    Object.keys(stageGroups).forEach(stage => {
-      const list = stageGroups[stage];
+    Object.keys(stageGroups).forEach(gk => {
+      const list = stageGroups[gk], stage = gk.split('|')[0];
       // صعوبة البنود (نموذج راش مبسط) لتقدير الأداء المتوقع في كل مجموعة عند درجة كلية معينة
       const sr = SCORED_RANGE[stage], n = list.length, lg = [];
       for (let i = sr[0]; i < sr[1]; i++) {
@@ -1077,6 +1081,7 @@ var Core = (function () {
     Attempts: ['attemptId', 'code', 'studentId', 'stage', 'form', 'status', 'startedAt', 'lastSeen', 'progress', 'answers', 'times', 'stoken', 'submittedAt'],
     Results: ['resultId', 'attemptId', 'code', 'studentId', 'name', 'gender', 'grade', 'className', 'track', 'dob', 'ageMonths', 'stage', 'form', 'score', 'maxScore', 'sets', 'setI', 'timeSec', 'rapid', 'answers', 'correct', 'status', 'submittedAt', 'overtime', 'keyVersion'],
     Keys: ['stage', 'form', 'version', 'key', 'checksum', 'uploadedAt'],
+    F5Images: ['idx', 'part', 'data'],
     Settings: ['key', 'value'],
     Log: ['ts', 'user', 'action', 'detail'],
     // اختبار التفكير الإبداعي (على نمط تورانس)
@@ -1173,8 +1178,8 @@ var Core = (function () {
       if (!classes[c]) classes[c] = { name: c, count: 0, grade: Number(st.grade), stage: stageOfGrade(st.grade), gender: st.gender, track: st.track };
       classes[c].count++;
     });
-    var keys = DB.rows('Keys');
-    return { user: publicUser(u), settings: settings(), classes: Object.keys(classes).map(function (k) { return classes[k]; }).sort(function (a, b) { return a.grade - b.grade || (a.name < b.name ? -1 : 1); }), keys: { count: keys.length, version: keys.length ? keys[0].version : '', uploadedAt: keys.length ? keys[0].uploadedAt : '' }, roles: ROLES, version: VERSION, features: ['torrance'], tt: HOOK.meta ? HOOK.meta(s) : null };
+    var keys = DB.rows('Keys').filter(function (k) { return String(k.form) !== '5'; });
+    return { f5: f5State(), user: publicUser(u), settings: settings(), classes: Object.keys(classes).map(function (k) { return classes[k]; }).sort(function (a, b) { return a.grade - b.grade || (a.name < b.name ? -1 : 1); }), keys: { count: keys.length, version: keys.length ? keys[0].version : '', uploadedAt: keys.length ? keys[0].uploadedAt : '' }, roles: ROLES, version: VERSION, features: ['torrance'], tt: HOOK.meta ? HOOK.meta(s) : null };
   }
 
   /* ---------------- المستخدمون (المدير فقط) ---------------- */
@@ -1255,7 +1260,9 @@ var Core = (function () {
       if (!classes.length) err('اختر فصلاً واحداً على الأقل من فصولك');
       classes.forEach(function (c) { if (s.classes.indexOf(c) < 0) err('الفصل ' + c + ' ليس من فصولك'); });
     }
-    var fm = str(d.formMode) || 'rotate'; if (['rotate', '1', '2', '3', '4'].indexOf(fm) < 0) err('النموذج غير صحيح');
+    var fm = str(d.formMode) || 'rotate'; if (['rotate', '1', '2', '3', '4', '5'].indexOf(fm) < 0) err('النموذج غير صحيح');
+    if (fm === '5' && (d.stage !== F5_STAGE || d.test === 'torrance')) err('النموذج 5 (رافن الأصلي) خاص باختبار المصفوفات للمرحلة المتوسطة');
+    if (fm === '5' && !f5State().ready) err('النموذج 5 غير جاهز بعد: ارفع صوره ومفتاح إجابته من «الإعدادات»');
     var tt = d.test === 'torrance', bat = str(d.battery), dm = str(d.drawMode) || 'both';
     if (tt) { if (['verbal', 'figural'].indexOf(bat) < 0) err('اختر صورة الاختبار (لفظية أو شكلية)'); if (['screen', 'paper', 'both'].indexOf(dm) < 0) dm = 'both'; }
     var tl = Number(d.timeLimit); if (tt) tl = tl > 0 ? (bat === 'verbal' ? 45 : 30) : 0; else if (!(tl >= 0 && tl <= 180)) tl = STAGE[d.stage].time;
@@ -1427,7 +1434,7 @@ var Core = (function () {
     var keys = p.keys || [];
     keys.forEach(function (k) { if (!STAGE[k.stage] || str(k.key).length !== STAGE[k.stage].n || !/^[1-8]+$/.test(str(k.key))) err('مفتاح غير صالح: ' + k.stage + ' ' + k.form); });
     var t = now();
-    DB.lock(function () { DB.replaceAll('Keys', keys.map(function (k) { return { stage: k.stage, form: String(k.form), version: k.version, key: k.key, checksum: k.checksum, uploadedAt: t }; })); });
+    DB.lock(function () { var keep = DB.rows('Keys').filter(function (k) { return String(k.form) === '5'; }).map(function (k) { var o = {}; HEAD.Keys.forEach(function (h) { o[h] = k[h]; }); return o; }); DB.replaceAll('Keys', keys.filter(function (k) { return String(k.form) !== '5'; }).map(function (k) { return { stage: k.stage, form: String(k.form), version: k.version, key: k.key, checksum: k.checksum, uploadedAt: t }; }).concat(keep)); });
     var rs = rescoreAll(s.username);
     log(s.username, 'uploadKeys', keys.length + ' مفتاح');
     return { count: keys.length, rescored: rs };
@@ -1457,6 +1464,66 @@ var Core = (function () {
   }
   function listLog(p) { var s = staffAuth(p.token); need(s, ['admin']); var r = DB.rows('Log'); return { log: r.slice(Math.max(0, r.length - 500)).reverse() }; }
 
+  /* ---------------- النموذج 5: اختبار رافن الأصلي (صور) ----------------
+     الصور ومفتاح الإجابة على الخادم فقط (لا تُنشر في الموقع العام)، وتُرسل للطالب أثناء اختباره فقط. */
+  var F5_STAGE = 'intermediate', F5_N = 60, F5_CHUNK = 40000;
+  function f5Key() { return DB.rows('Keys').filter(function (k) { return k.stage === F5_STAGE && String(k.form) === '5'; })[0] || null; }
+  function f5State() {
+    var idx = {}; DB.rows('F5Images').forEach(function (r) { idx[r.idx] = 1; });
+    var n = Object.keys(idx).length, k = f5Key();
+    return { ready: n === F5_N && !!k && str(k.key).length === F5_N, images: n, hasKey: !!k && str(k.key).length === F5_N, uploadedAt: k ? Number(k.uploadedAt) || '' : '' };
+  }
+  function f5ValidKey(key) {
+    key = str(key).replace(/[^0-9]/g, '');
+    if (key.length !== F5_N) err('مفتاح الإجابة يجب أن يكون ' + F5_N + ' رقماً (رقم الإجابة الصحيحة لكل سؤال بالترتيب)');
+    for (var i = 0; i < F5_N; i++) { var d = Number(key[i]), max = i < 24 ? 6 : 8; if (!(d >= 1 && d <= max)) err('الإجابة رقم ' + (i + 1) + ' غير صحيحة: يجب أن تكون من 1 إلى ' + max); }
+    return key;
+  }
+  function f5SaveKey(key, who) {
+    var t = now(), row = { stage: F5_STAGE, form: '5', version: 'F5-' + t, key: key, checksum: String(key.length), uploadedAt: t };
+    DB.lock(function () {
+      var rows = DB.rows('Keys').filter(function (k) { return !(k.stage === F5_STAGE && String(k.form) === '5'); }).map(function (k) { var o = {}; HEAD.Keys.forEach(function (h) { o[h] = k[h]; }); return o; });
+      DB.replaceAll('Keys', rows.concat([row]));
+    });
+    log(who, 'f5Key', 'تحديث مفتاح النموذج 5');
+  }
+  function f5Upload(p) {
+    var s = staffAuth(p.token); need(s, ['admin']);
+    var imgs = p.images || [];
+    if (imgs.length) {
+      if (imgs.length !== F5_N) err('الملف يجب أن يحتوي ' + F5_N + ' صورة');
+      var rows = [];
+      imgs.forEach(function (im) {
+        var i = Number(im.idx), d = str(im.data);
+        if (!(i >= 0 && i < F5_N) || !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(d)) err('صورة غير صالحة في الملف (' + (i + 1) + ')');
+        for (var k = 0, part = 0; k < d.length; k += F5_CHUNK, part++) rows.push({ idx: String(i), part: String(part), data: d.slice(k, k + F5_CHUNK) });
+      });
+      DB.lock(function () { DB.replaceAll('F5Images', rows); });
+      DB.cacheDel && DB.cacheDel('F5IMG');
+      log(s.username, 'f5Images', F5_N + ' صورة');
+    }
+    if (p.key) f5SaveKey(f5ValidKey(p.key), s.username);
+    var rs = p.key ? rescoreAll(s.username) : 0;
+    return { state: f5State(), rescored: rs };
+  }
+  function f5SetKey(p) {
+    var s = staffAuth(p.token); need(s, ['admin']);
+    f5SaveKey(f5ValidKey(p.key), s.username);
+    return { state: f5State(), rescored: rescoreAll(s.username) };
+  }
+  function f5Images(p) {
+    var staff = null, out = { images: {} };
+    if (p.stoken) { var a = studentAuth(p.stoken); if (String(a.form) !== '5') err('هذا الاختبار لا يحتاج صوراً'); if (a.status !== 'in_progress') err('تم تسليم الاختبار'); }
+    else { staff = staffAuth(p.token); need(staff, ['admin', 'coordinator']); }
+    var parts = {};
+    DB.rows('F5Images').forEach(function (r) { (parts[r.idx] = parts[r.idx] || [])[Number(r.part)] = r.data; });
+    Object.keys(parts).forEach(function (i) { out.images[i] = parts[i].join(''); });
+    if (Object.keys(out.images).length !== F5_N) err('صور النموذج 5 غير مرفوعة. راجع مدير النظام');
+    if (staff) { var k = f5Key(); out.key = k ? str(k.key) : ''; }
+    return out;
+  }
+  function f5Status(p) { var s = staffAuth(p.token); var st = f5State(); if (s.role === 'admin') { var k = f5Key(); st.key = k ? str(k.key) : ''; } return st; }
+
   var ACTIONS = {
     ping: function () { return { pong: true, version: VERSION }; },
     login: login, changePassword: changePassword,
@@ -1467,7 +1534,8 @@ var Core = (function () {
     studentLogin: studentLogin, studentSave: studentSave, studentSubmit: studentSubmit,
     listResults: listResults, setResultStatus: setResultStatus, uploadKeys: uploadKeys,
     rescore: function (p) { var s = staffAuth(p.token); need(s, ['admin']); return { rescored: rescoreAll(s.username) }; },
-    saveSettings: saveSettings, listLog: listLog
+    saveSettings: saveSettings, listLog: listLog,
+    f5Status: f5Status, f5Upload: f5Upload, f5SetKey: f5SetKey, f5Images: f5Images
   };
 
   /* ---------------- امتداد اختبار التفكير الإبداعي ---------------- */

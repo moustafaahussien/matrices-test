@@ -38,20 +38,24 @@
     const minN = Number(settings.minNorm || 30), giftedPct = Number(settings.giftedPct || 90);
     const valid = results.filter(r => r.status === 'valid' && r.score !== '');
     valid.forEach(r => { r._score = Number(r.score); r._parts = parts(r); });
-    const ref = REF[refType] || REF.grade;
+    const ref0 = REF[refType] || REF.grade;
+    // النموذج 5 (رافن الأصلي) صعوبته مختلفة عن النماذج 1–4، فتُحسب معاييره منفصلة
+    const F5 = r => String(r.form) === '5';
+    const ref = { key: r => ref0.key(r) + (F5(r) ? '|F5' : ''), name: r => ref0.name(r) + (F5(r) ? ' — النموذج 5' : '') };
+    const sKey = r => r.stage + (F5(r) ? '|F5' : '');
     const groups = {}, stageGroups = {};
-    valid.forEach(r => { const k = ref.key(r); (groups[k] = groups[k] || []).push(r._score); (stageGroups[r.stage] = stageGroups[r.stage] || []).push(r); });
+    valid.forEach(r => { const k = ref.key(r); (groups[k] = groups[k] || []).push(r._score); (stageGroups[sKey(r)] = stageGroups[sKey(r)] || []).push(r); });
     valid.forEach(r => {
       let arr = groups[ref.key(r)], refName = ref.name(r), small = false, fallback = false;
-      if ((arr.length < minN || (refType === 'age' && ageYears(r) == null)) && ref !== REF.stage) { arr = stageGroups[r.stage].map(x => x._score); refName = 'المرحلة كاملة'; fallback = true; }
+      if ((arr.length < minN || (refType === 'age' && ageYears(r) == null)) && ref0 !== REF.stage) { arr = stageGroups[sKey(r)].map(x => x._score); refName = 'المرحلة كاملة' + (F5(r) ? ' — النموذج 5' : ''); fallback = true; }
       if (arr.length < minN) small = true;
       r._pct = pctRank(r._score, arr); r._refN = arr.length; r._refName = refName; r._refSmall = small; r._refFallback = fallback;
       const m = mean(arr), s = sd(arr); r._z = s ? (r._score - m) / s : 0; r._ss = Math.round(100 + 15 * r._z);
       r._level = level(r._pct);
     });
     // الاتساق: مقارنة أداء الأجزاء بالمتوقع لمن لهم الدرجة الكلية نفسها تقريباً
-    Object.keys(stageGroups).forEach(stage => {
-      const list = stageGroups[stage];
+    Object.keys(stageGroups).forEach(gk => {
+      const list = stageGroups[gk], stage = gk.split('|')[0];
       // صعوبة البنود (نموذج راش مبسط) لتقدير الأداء المتوقع في كل مجموعة عند درجة كلية معينة
       const sr = SCORED_RANGE[stage], n = list.length, lg = [];
       for (let i = sr[0]; i < sr[1]; i++) {

@@ -650,9 +650,21 @@
     });
     return items;
   }
+  /* النموذج 5: اختبار رافن الأصلي (المصفوفات القياسية) — صور تُجلب من الخادم أثناء الاختبار، ومفتاحه على الخادم فقط */
+  const EXTRA_FORMS = { intermediate: [5] };
+  function formsOf(stage) { return FORMS.concat(EXTRA_FORMS[stage] || []); }
+  function isImageForm(stage, form) { return (EXTRA_FORMS[stage] || []).includes(+form); }
+  function imageItems(stage) {
+    const items = [];
+    STAGES[stage].sets.forEach(set => { for (let t = 0; t < set.n; t++) items.push({ idx: items.length, set: set.id, setLabel: set.label, num: t + 1, layout: 'img', stem: '', options: Array(set.nOpt).fill(''), answer: 0, img: true }); });
+    return items;
+  }
   function getForm(stage, form) {
     const k = stage + '|' + form;
-    if (!cache[k]) { if (!STAGES[stage] || !FORMS.includes(+form)) throw new Error('نموذج غير معروف'); cache[k] = { stage, form: +form, items: buildItems(stage, 'F' + form) }; }
+    if (!cache[k]) {
+      if (STAGES[stage] && isImageForm(stage, form)) cache[k] = { stage, form: +form, items: imageItems(stage), image: true };
+      else { if (!STAGES[stage] || !FORMS.includes(+form)) throw new Error('نموذج غير معروف'); cache[k] = { stage, form: +form, items: buildItems(stage, 'F' + form) }; }
+    }
     return cache[k];
   }
   function getPractice(stage) {
@@ -675,5 +687,5 @@
   function setIndex(stage) { const out = []; let i = 0; STAGES[stage].sets.forEach(s => { out.push({ id: s.id, label: s.label, from: i, to: i + s.n - 1, n: s.n }); i += s.n; }); return out; }
   function itemCount(stage) { return STAGES[stage].sets.reduce((a, s) => a + s.n, 0); }
 
-  G.RVItems = { VERSION, STAGES, FORMS, getForm, getPractice, keyString, allKeys, setIndex, itemCount, stageOfGrade, hashStr, _itemMatrix: itemMatrix };
+  G.RVItems = { VERSION, STAGES, FORMS, EXTRA_FORMS, formsOf, isImageForm, getForm, getPractice, keyString, allKeys, setIndex, itemCount, stageOfGrade, hashStr, _itemMatrix: itemMatrix };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -223,6 +223,7 @@
   function stuPersist() { if (!STU) return; localStorage.setItem(stuKey(), JSON.stringify({ answers: STU.answers, times: STU.times, cur: STU.cur, phase: STU.phase })); localStorage.setItem('rvstu', JSON.stringify({ stoken: STU.stoken, attempt: STU.attempt, student: STU.student, session: STU.session, school: STU.school, offset: STU.offset })); }
   function stuClear() { if (STU) localStorage.removeItem(stuKey()); localStorage.removeItem('rvstu'); }
   function startStudent(r) {
+    F5IMG = null;
     const n = I.itemCount(r.attempt.stage);
     STU = { stoken: r.stoken, attempt: r.attempt, student: r.student, session: r.session, school: r.school, offset: r.serverNow - Date.now(), answers: Array(n).fill(0), times: Array(n).fill(0), cur: 0, phase: 'welcome', lastSave: Date.now(), unsaved: 0 };
     const srvA = (r.attempt.answers || '').split('').map(Number), srvT = (r.attempt.times || '').split(',').map(Number);
@@ -239,6 +240,11 @@
     stopTimers();
     document.body.classList.add('student-mode');
     const st = STU.attempt.stage;
+    if (needF5() && !F5IMG) {
+      view.innerHTML = '<div class="stu-card"><div class="spin big"></div><p class="muted">جارٍ تحميل أسئلة الاختبار…</p></div>';
+      loadF5().then(() => { if (STU) renderStudent(); }).catch(e => { if (!STU) return; view.innerHTML = `<div class="stu-card"><h2>تعذّر تحميل الأسئلة</h2><p class="bad">${esc(e.message)}</p><button class="btn big" data-act="f5Retry">إعادة المحاولة</button></div>`; bindStudent(); });
+      return;
+    }
     if (STU.phase === 'welcome') {
       const N = STU.items.length, tl = STU.session.timeLimit;
       view.innerHTML = `<div class="stu-card"><div class="logo sm">${logoSvg()}</div>
@@ -282,8 +288,13 @@
     });
     bindStudent();
   }
+  /* صور النموذج 5 (رافن الأصلي): تُجلب من الخادم مرة واحدة عند بدء الاختبار */
+  let F5IMG = null;
+  const needF5 = () => !!(STU && I.isImageForm && I.isImageForm(STU.attempt.stage, STU.attempt.form));
+  async function loadF5() { const r = await api('f5Images', { stoken: STU.stoken }, { noToken: true, student: true, retries: 3 }); F5IMG = r.images; }
   function itemHtml(it, sel) {
     const n = it.options.length;
+    if (it.img) return `<div class="f5-q"><div class="f5-wrap"><img class="f5-img" src="${(F5IMG || {})[it.idx] || ''}" alt="السؤال ${it.idx + 1}" draggable="false"></div><p class="f5-hint">اختر رقم الجزء الذي يكمل الشكل:</p><div class="opts f5opts n${n}">${it.options.map((o, k) => `<button class="opt ${sel === k + 1 ? 'sel' : ''}" data-v="${k + 1}"><b>${'١٢٣٤٥٦٧٨'[k]}</b><small>${k + 1}</small></button>`).join('')}</div></div>`;
     return `<div class="stem-wrap lay-${it.layout}">${it.stem}</div><div class="opts n${n}">${it.options.map((o, k) => `<button class="opt ${sel === k + 1 ? 'sel' : ''}" data-v="${k + 1}"><span class="on">${k + 1}</span>${o}</button>`).join('')}</div>`;
   }
   function renderItem() {
@@ -369,7 +380,8 @@
       else if (act === 'stuMap') openMap();
       else if (act === 'stuFinish') finishAsk();
       else if (act === 'stuRetry') { STU.submitting = false; submitTest(false); }
-      else if (act === 'stuExit') { STU = null; stuClear(); document.body.classList.remove('student-mode'); render(); }
+      else if (act === 'f5Retry') renderStudent();
+      else if (act === 'stuExit') { STU = null; F5IMG = null; stuClear(); document.body.classList.remove('student-mode'); render(); }
     };
   }
   document.addEventListener('keydown', e => {
@@ -498,7 +510,7 @@
     const r = await api('listSessions');
     setPage(`<div class="row between"><h1 class="ph">جلسات الاختبار</h1><button class="btn" data-act="newSession">+ جلسة جديدة</button></div>
       <div class="card">${r.sessions.length ? sessionsTable(r.sessions) : '<p class="muted">لا توجد جلسات بعد.</p>'}</div>
-      <div class="card guide"><h3>ملاحظات</h3><ul><li><b>بالتناوب</b>: يأخذ كل طالب يدخل نموذجاً مختلفاً عن الذي قبله (1←2←3←4) فيصعب النقل بين المتجاورين.</li><li>إغلاق الجلسة يمنع دخول طلاب جدد فقط، ولا يقطع اختبار من بدأ.</li><li>إذا انقطع جهاز الطالب يدخل من جهاز آخر بالرقم والرمز نفسيهما ويكمل من حيث توقف.</li></ul></div>`);
+      <div class="card guide"><h3>ملاحظات</h3><ul><li><b>بالتناوب</b>: يأخذ كل طالب يدخل نموذجاً مختلفاً عن الذي قبله (1←2←3←4) فيصعب النقل بين المتجاورين.</li><li><b>النموذج 5</b> (المرحلة المتوسطة فقط): أسئلة اختبار رافن الأصلي بالترتيب نفسه، ولا يدخل في التناوب. تُحسب رتبه المئينية منفصلة عن النماذج 1–4.</li><li>إغلاق الجلسة يمنع دخول طلاب جدد فقط، ولا يقطع اختبار من بدأ.</li><li>إذا انقطع جهاز الطالب يدخل من جهاز آخر بالرقم والرمز نفسيهما ويكمل من حيث توقف.</li></ul></div>`);
   };
   ACT.showCode = (b) => { const m = modal(`<div class="code-show"><p>رمز الجلسة</p><div class="code-xl" dir="ltr">${b.dataset.code}</div><p>ادخل إلى الموقع ← «دخول الطالب» ← اكتب رقمك ثم هذا الرمز</p><p class="muted" dir="ltr">${esc(location.href.split('#')[0])}</p></div>`, { wide: true, cls: 'codem' }); };
   ACT.newSession = async () => {
@@ -513,7 +525,7 @@
       <label id="timeWrap">الوقت (دقيقة، 0 = مفتوح)<input name="time" type="number" min="0" max="180"></label>
       <label id="timedWrap" class="hidden">التوقيت<select name="timed"><option value="1">مؤقت لكل نشاط (كما في الاختبار الأصلي)</option><option value="0">بدون توقيت</option></select></label></div>
       <label>الفصول المشمولة ${isAll() ? '<small class="muted">(اتركها فارغة لتشمل كل فصول المرحلة)</small>' : ''}</label><div class="checks" id="clsBox"></div>
-      <div class="row2"><label>توزيع النماذج<select name="form"><option value="rotate">تلقائي بالتناوب (مستحسن)</option><option value="1">النموذج 1 للجميع</option><option value="2">النموذج 2 للجميع</option><option value="3">النموذج 3 للجميع</option><option value="4">النموذج 4 للجميع</option></select></label>
+      <div class="row2"><label>توزيع النماذج<select name="form"><option value="rotate">تلقائي بالتناوب (مستحسن)</option><option value="1">النموذج 1 للجميع</option><option value="2">النموذج 2 للجميع</option><option value="3">النموذج 3 للجميع</option><option value="4">النموذج 4 للجميع</option><option value="5" id="optF5">النموذج 5 – رافن الأصلي (المتوسط)</option></select></label>
       <div><label class="chk" id="showWrap"><input type="checkbox" name="show"> إظهار الدرجة للطالب بعد التسليم</label>${isAll() ? '<label class="chk"><input type="checkbox" name="retake"> السماح لمن سبق اختباره في المرحلة بإعادته (بنموذج مختلف)</label>' : ''}</div></div>
       <div class="row end"><button class="btn ghost" type="button" data-close>إلغاء</button><button class="btn">إنشاء الجلسة</button></div></form>`, { wide: true });
     const f = $('#fSes', m.el);
@@ -526,7 +538,10 @@
       if (tt) h.innerHTML = f.battery.value === 'verbal' ? 'سبعة أنشطة كتابية (45 دقيقة). لطلاب الصفوف 1–3 يُفضّل الصورة الشكلية، أو أن يُملي الطالب إجاباته على المعلم ثم تُدخل من «إدخال ورقي».' : 'ثلاثة أنشطة رسم (30 دقيقة). يُفضّل جهاز لوحي أو حاسب بفأرة، ويمكن الرسم على الورق المطبوع من «نماذج التفكير الإبداعي» ثم تصويره.';
     };
     f.test.onchange = tgl; f.battery.onchange = tgl; tgl();
-    f.stage.onchange = fill; fill();
+    // النموذج 5 متاح للمرحلة المتوسطة في اختبار المصفوفات فقط، وبعد رفع صوره ومفتاحه
+    const f5ok = () => { const o = $('#optF5', m.el); const ok = f.test.value !== 'torrance' && f.stage.value === 'intermediate' && !!(S.meta.f5 && S.meta.f5.ready); o.disabled = !ok; o.hidden = !ok; if (!ok && f.form.value === '5') f.form.value = 'rotate'; };
+    f.stage.onchange = () => { fill(); f5ok(); }; fill(); f5ok();
+    f.test.addEventListener('change', f5ok);
     f.onsubmit = async e => {
       e.preventDefault(); const b = $('button:last-child', f); busy(b, true);
       try {
@@ -587,7 +602,7 @@
       <label>المرحلة<select data-f="stage">${stages.map(s => `<option value="${s}" ${F.stage === s ? 'selected' : ''}>${STAGE_NAME[s]}</option>`).join('')}</select></label>
       ${opts.noCls ? '' : `<label>الفصل<select data-f="cls"><option value="">الكل</option>${uniq('className').map(c => `<option ${F.cls === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>`}
       <label>الجنس<select data-f="gender"><option value="">الكل</option>${uniq('gender').map(c => `<option ${F.gender === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
-      ${opts.form ? `<label>النموذج<select data-f="form"><option value="">الكل</option>${[1, 2, 3, 4].map(f => `<option value="${f}" ${F.form == f ? 'selected' : ''}>نموذج ${f}</option>`).join('')}</select></label>` : ''}
+      ${opts.form ? `<label>النموذج<select data-f="form"><option value="">الكل</option>${I.formsOf(F.stage || 'primary').map(f => `<option value="${f}" ${F.form == f ? 'selected' : ''}>نموذج ${f}</option>`).join('')}</select></label>` : ''}
       ${opts.code ? `<label>الجلسة<select data-f="code"><option value="">الكل</option>${uniq('code').map(c => `<option ${F.code === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label>` : ''}
       <label>مجموعة المقارنة<select data-f="ref">${Object.keys(AN.REF).map(k => `<option value="${k}" ${F.ref === k ? 'selected' : ''}>${AN.REF[k].label}</option>`).join('')}</select></label>
       ${opts.search ? `<label class="grow">بحث<input data-f="q" value="${esc(F.q)}" placeholder="اسم أو رقم الطالب"></label>` : ''}
@@ -858,27 +873,64 @@
       <div class="card"><h3>مفاتيح الإجابة</h3><p>الحالة: ${keysOk ? '<span class="badge green">مرفوعة ومطابقة</span>' : '<span class="badge warnb">غير مرفوعة أو قديمة</span>'} — ${k.count} مفتاحاً، الإصدار ${esc(k.version || '—')}، آخر رفع ${fmtDate(k.uploadedAt, true)}</p>
         <p class="sm muted">المفاتيح تُحفظ على الخادم فقط ويُصحَّح الاختبار هناك، فلا تصل الإجابات الصحيحة إلى جهاز الطالب مع النتيجة. تُرفع تلقائياً عند دخول المدير إذا كانت ناقصة.</p>
         <button class="btn" data-act="uploadKeys">رفع المفاتيح وإعادة تصحيح النتائج</button></div>
+      ${role() === 'admin' ? '<div class="card" id="f5Card"><h3>النموذج 5 — اختبار رافن الأصلي (المرحلة المتوسطة)</h3><div id="f5Box"><div class="spin big"></div></div></div>' : ''}
       ${TT ? TT.settingsHtml() : ''}
       ${DEMO ? '<div class="card"><h3>الوضع التجريبي</h3><p>البيانات محفوظة في هذا المتصفح فقط.</p><button class="btn danger" data-act="demoReset">إعادة ضبط البيانات التجريبية</button></div>' : ''}`);
     if (TT) TT.bindSettings();
+    if (role() === 'admin') loadF5Card();
     $('#fSet').onsubmit = async e => { e.preventDefault(); const f = e.target; const b = $('button', f); busy(b, true); try { const r = await api('saveSettings', { settings: { schoolName: f.schoolName.value, giftedPct: f.giftedPct.value, minNorm: f.minNorm.value } }); S.meta.settings = r.settings; toast('تم الحفظ'); } catch (er) { toast(er.message, 'err'); } finally { busy(b, false); } };
   };
 
+  /* ---------------- النموذج 5: رفع الصور ومراجعة مفتاح الإجابة ---------------- */
+  async function loadF5Card() {
+    const box = $('#f5Box'); if (!box) return;
+    let st; try { st = await api('f5Status'); } catch (e) { box.innerHTML = `<p class="bad">${esc(e.message)}</p>`; return; }
+    const sets = I.setIndex('intermediate'), key = st.key || '';
+    box.innerHTML = `<div class="cards"><div class="stat ${st.images === 60 ? 'green' : 'warnc'}"><b>${st.images}/60</b><span>صورة مرفوعة</span></div><div class="stat ${st.hasKey ? 'green' : 'warnc'}"><b>${st.hasKey ? '✓' : '✗'}</b><span>مفتاح الإجابة</span></div><div class="stat ${st.ready ? 'green' : ''}"><b class="sm-b">${st.ready ? 'جاهز' : 'غير جاهز'}</b><span>${st.uploadedAt ? 'آخر تحديث ' + fmtDate(st.uploadedAt, true) : 'للاستخدام في الجلسات'}</span></div></div>
+      <p class="sm muted">أسئلة اختبار رافن الأصلي (المصفوفات القياسية، 60 سؤالاً) بترتيبها. تُحفظ الصور والمفتاح على الخادم فقط، ولا تظهر في الموقع العام: يراها الطالب أثناء اختباره فقط، والمنسق في «نماذج المصفوفات». يُختار من «جلسة جديدة» ← توزيع النماذج ← «النموذج 5»، ولا يدخل في التناوب، وتُحسب رتبه المئينية منفصلة.</p>
+      <h4>1) رفع ملف النموذج</h4>
+      <div class="row"><label class="btn ghost file-btn">اختيار ملف النموذج (.json)<input type="file" id="f5File" accept=".json" hidden></label><span class="sm muted" id="f5FileName"></span></div>
+      <h4>2) مفتاح الإجابة (رقم الإجابة الصحيحة لكل سؤال)</h4>
+      <div class="f5keys">${sets.map((g, i) => `<label>المجموعة ${g.label} <small class="muted">(${i < 2 ? '1–6' : '1–8'})</small><input dir="ltr" class="mono" data-f5set="${i}" maxlength="12" inputmode="numeric" value="${esc(key.slice(g.from, g.to + 1))}" placeholder="12 رقماً"></label>`).join('')}</div>
+      <div class="row end"><button class="btn" id="f5SaveKey">حفظ المفتاح وإعادة تصحيح نتائج النموذج 5</button></div>`;
+    $('#f5File').onchange = async e => {
+      const fl = e.target.files[0]; if (!fl) return; $('#f5FileName').textContent = fl.name;
+      let pk; try { pk = JSON.parse(await fl.text()); } catch (er) { toast('الملف غير صالح', 'err'); return; }
+      if (!pk || pk.type !== 'rv-form5' || !Array.isArray(pk.images) || pk.images.length !== 60) { toast('هذا ليس ملف النموذج 5', 'err'); return; }
+      if (!(await confirmBox(`رفع ${pk.images.length} صورة${pk.key ? ' ومفتاح الإجابة' : ''}؟ تستبدل أي صور سابقة للنموذج 5.`, 'رفع'))) return;
+      box.insertAdjacentHTML('afterbegin', '<p id="f5Busy" class="sm"><span class="spin"></span> جارٍ الرفع… قد يستغرق دقيقة</p>');
+      try { const r = await api('f5Upload', { images: pk.images, key: pk.key || '' }, { retries: 1 }); toast('تم رفع النموذج 5' + (r.rescored ? ` وإعادة تصحيح ${r.rescored} نتيجة` : '')); S.meta = await api('getMeta'); loadF5Card(); }
+      catch (er) { toast(er.message, 'err'); const b = $('#f5Busy'); if (b) b.remove(); }
+    };
+    $('#f5SaveKey').onclick = async e => {
+      const k = $$('[data-f5set]').map(x => x.value.replace(/[^0-9]/g, '')).join('');
+      if (k.length !== 60) { toast('اكتب 12 رقماً في كل مجموعة (المجموع 60)', 'err'); return; }
+      busy(e.target, true);
+      try { const r = await api('f5SetKey', { key: k }); toast('تم حفظ المفتاح' + (r.rescored ? ` وإعادة تصحيح ${r.rescored} نتيجة` : '')); S.meta = await api('getMeta'); loadF5Card(); }
+      catch (er) { toast(er.message, 'err'); busy(e.target, false); }
+    };
+  }
+
   /* ---------------- معاينة النماذج ---------------- */
   PAGES.preview = async () => {
-    let stage = 'primary', form = 1, show = false, setF = '';
-    const draw = () => {
+    let stage = 'primary', form = 1, show = false, setF = '', PV5 = null;
+    const draw = async () => {
+      if (!I.formsOf(stage).includes(form)) form = 1;
       const fm = I.getForm(stage, form);
+      if (fm.image && !PV5) {
+        setPage('<div class="center"><div class="spin big"></div></div>');
+        try { PV5 = await api('f5Images'); } catch (e) { setPage(`<h1 class="ph">معاينة النماذج</h1><div class="card err">${esc(e.message)}</div><button class="btn ghost" id="pvBack">رجوع</button>`); $('#pvBack').onclick = () => { form = 1; draw(); }; return; }
+      }
       const sets = I.STAGES[stage].sets;
       const lbl = it => (it.set === 'I' || it.set === 'II' ? it.set + '-' : it.setLabel) + it.num;
       const items = fm.items.filter(it => !setF || it.set === setF);
       setPage(`<h1 class="ph">معاينة النماذج</h1><div class="filters"><label>المرحلة<select id="pvS">${['primary', 'intermediate', 'secondary'].map(s => `<option value="${s}" ${s === stage ? 'selected' : ''}>${STAGE_NAME[s]} — ${STAGE_TEST[s]}</option>`).join('')}</select></label>
-        <label>النموذج<select id="pvF">${[1, 2, 3, 4].map(f => `<option ${f === form ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
+        <label>النموذج<select id="pvF">${I.formsOf(stage).map(f => `<option value="${f}" ${f === form ? 'selected' : ''}>${f}${I.isImageForm(stage, f) ? ' – رافن الأصلي' : ''}</option>`).join('')}</select></label>
         <label>المجموعة<select id="pvG"><option value="">كل المجموعات (${fm.items.length} بنداً)</option>${sets.map(st => `<option value="${st.id}" ${st.id === setF ? 'selected' : ''}>${st.id === 'I' || st.id === 'II' ? st.label : 'المجموعة ' + st.label} (${st.n})</option>`).join('')}</select></label>
         <label class="chk"><input type="checkbox" id="pvA" ${show ? 'checked' : ''}> إظهار الإجابات الصحيحة</label><button class="btn ghost" data-act="printPage">طباعة</button></div>
-        <p class="muted">يُعرض ${items.length} بنداً من ${fm.items.length}. النماذج الأربعة لها البنية والقواعد نفسها بنداً ببند، وتختلف الأشكال والقيم، فهي متكافئة في الصعوبة. اضغط رقم البند للانتقال إليه:</p>
+        <p class="muted">يُعرض ${items.length} بنداً من ${fm.items.length}. ${fm.image ? 'النموذج 5: أسئلة اختبار رافن الأصلي بترتيبها، محفوظة على الخادم فقط ولا تظهر إلا للمنسقين ولطالب أثناء اختباره.' : 'النماذج الأربعة لها البنية والقواعد نفسها بنداً ببند، وتختلف الأشكال والقيم، فهي متكافئة في الصعوبة.'} اضغط رقم البند للانتقال إليه:</p>
         <div class="pv-jump">${items.map(it => `<a href="javascript:void(0)" data-jump="pv-${it.idx}">${lbl(it)}</a>`).join('')}</div>
-        <div class="pv-list">${items.map(it => `<div class="pv-item" id="pv-${it.idx}"><div class="pv-h"><span>${lbl(it)}</span>${show ? `<span class="badge green">الإجابة ${it.answer}</span>` : ''}</div><div class="pv-stem lay-${it.layout}">${it.stem}</div><div class="pv-opts n${it.options.length}">${it.options.map((o, k) => `<div class="pv-o ${show && k + 1 === it.answer ? 'ans' : ''}"><span>${k + 1}</span>${o}</div>`).join('')}</div></div>`).join('')}</div>`);
+        <div class="pv-list">${items.map(it => fm.image ? `<div class="pv-item" id="pv-${it.idx}"><div class="pv-h"><span>${lbl(it)}</span>${show ? `<span class="badge green">الإجابة ${(PV5.key || '')[it.idx] || '—'}</span>` : ''}</div><img class="pv-f5" src="${PV5.images[it.idx] || ''}" alt=""></div>` : `<div class="pv-item" id="pv-${it.idx}"><div class="pv-h"><span>${lbl(it)}</span>${show ? `<span class="badge green">الإجابة ${it.answer}</span>` : ''}</div><div class="pv-stem lay-${it.layout}">${it.stem}</div><div class="pv-opts n${it.options.length}">${it.options.map((o, k) => `<div class="pv-o ${show && k + 1 === it.answer ? 'ans' : ''}"><span>${k + 1}</span>${o}</div>`).join('')}</div></div>`).join('')}</div>`);
       $('#pvS').onchange = e => { stage = e.target.value; setF = ''; draw(); }; $('#pvF').onchange = e => { form = +e.target.value; draw(); }; $('#pvG').onchange = e => { setF = e.target.value; draw(); }; $('#pvA').onchange = e => { show = e.target.checked; draw(); };
       $$('[data-jump]').forEach(a => a.onclick = () => { const el = document.getElementById(a.dataset.jump); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
     };

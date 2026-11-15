@@ -236,3 +236,19 @@ body:has(.login-wrap){background:#0d2f39}body:has(.login-wrap) .site-foot{color:
 .un-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
 .un-item{display:flex;flex-direction:column;gap:3px;align-items:flex-start;text-align:right;background:#f8fafb;border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;font:inherit;color:inherit}
 .un-item:hover{border-color:#8ac3d1;background:#eef7f9}.un-item small{color:var(--mut)}.un-item span{font-size:12px}.un-item i{color:#a3adb5;font-style:normal}
+/* النموذج 5 (رافن الأصلي: صور) */
+.f5-wrap{background:#fff;border:2px solid #d6dfe5;border-radius:16px;padding:10px;display:flex;justify-content:center;margin:0 auto 10px;max-width:760px}
+.f5-img{width:100%;max-width:720px;height:auto;image-rendering:auto;user-select:none;-webkit-user-drag:none}
+.f5-hint{text-align:center;color:#5b6b75;margin:4px 0 10px}
+.opts.f5opts{max-width:760px;margin:0 auto}
+.opts.f5opts .opt{padding:14px 0;font-size:30px;font-weight:800;color:#0f4c5c}
+.opts.f5opts .opt.sel{color:#fff;background:#0f766e;border-color:#0f766e}
+.pv-f5{max-width:520px;width:100%;border:1px solid #d6dfe5;border-radius:10px;background:#fff}
+.f5keys{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:8px 0}
+.f5keys input{letter-spacing:3px;font-size:18px;text-align:center}
+.opts.f5opts .opt b{display:block;line-height:1.1}.opts.f5opts .opt small{display:block;font-size:13px;font-weight:600;opacity:.6}
+.f5-q{flex:1 1 100%;width:100%;display:flex;flex-direction:column;align-items:center}
+.f5-q .f5-wrap{width:100%;max-width:640px}
+.f5-q .opts.f5opts{width:100%;max-width:640px;grid-template-columns:repeat(3,1fr)}
+.f5-q .opts.f5opts.n8{grid-template-columns:repeat(4,1fr)}
+.f5-q .opts.f5opts .opt{min-height:64px}
